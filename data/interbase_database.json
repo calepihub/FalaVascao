@@ -122,9 +122,165 @@
           ]
         }
       ],
-      "updated": "2026-11-08T16:33:27.647Z",
+      "updated": "2026-11-08T17:26:31.862Z",
       "id": 1
     }
   ],
-  "boards": []
+  "boards": [],
+  "community_lineups": [
+    {
+      "id": "com_demo_1",
+      "author": "Carlos da Barreira (Membro VIP)",
+      "title": "4-3-3 Ofensivo para a Decisão",
+      "opponentClub": "Palmeiras",
+      "formation": "4-3-3",
+      "players": [
+        {
+          "name": "Léo Jardim",
+          "role": "GOL",
+          "x": 0.12,
+          "y": 0.5
+        },
+        {
+          "name": "Paulo Henrique",
+          "role": "LD",
+          "x": 0.28,
+          "y": 0.8
+        },
+        {
+          "name": "Lucas Freitas",
+          "role": "ZAG",
+          "x": 0.25,
+          "y": 0.6
+        },
+        {
+          "name": "Robert Renan",
+          "role": "ZAG",
+          "x": 0.25,
+          "y": 0.4
+        },
+        {
+          "name": "Lucas Piton",
+          "role": "LE",
+          "x": 0.28,
+          "y": 0.2
+        },
+        {
+          "name": "Jair",
+          "role": "VOL",
+          "x": 0.42,
+          "y": 0.5
+        },
+        {
+          "name": "Tchê Tchê",
+          "role": "VOL",
+          "x": 0.5,
+          "y": 0.65
+        },
+        {
+          "name": "Lescano",
+          "role": "MEI",
+          "x": 0.55,
+          "y": 0.35
+        },
+        {
+          "name": "Adson",
+          "role": "ATA",
+          "x": 0.72,
+          "y": 0.78
+        },
+        {
+          "name": "Vegetti",
+          "role": "ATA",
+          "x": 0.78,
+          "y": 0.5
+        },
+        {
+          "name": "Nuno Moreira",
+          "role": "ATA",
+          "x": 0.72,
+          "y": 0.22
+        }
+      ],
+      "likes": 42,
+      "publishedAt": "2026-11-08T12:00:00.000Z"
+    },
+    {
+      "id": "com_demo_2",
+      "author": "Torcida Vascaína Camisa 7",
+      "title": "Marcação Alta e Saída Rápida",
+      "opponentClub": "Flamengo",
+      "formation": "4-2-3-1",
+      "players": [
+        {
+          "name": "Léo Jardim",
+          "role": "GOL",
+          "x": 0.12,
+          "y": 0.5
+        },
+        {
+          "name": "Puma Rodríguez",
+          "role": "LD",
+          "x": 0.3,
+          "y": 0.82
+        },
+        {
+          "name": "Carlos Cuesta",
+          "role": "ZAG",
+          "x": 0.26,
+          "y": 0.58
+        },
+        {
+          "name": "Saldivia",
+          "role": "ZAG",
+          "x": 0.26,
+          "y": 0.42
+        },
+        {
+          "name": "Lucas Piton",
+          "role": "LE",
+          "x": 0.3,
+          "y": 0.18
+        },
+        {
+          "name": "Thiago Mendes",
+          "role": "VOL",
+          "x": 0.45,
+          "y": 0.6
+        },
+        {
+          "name": "Mateus Carvalho",
+          "role": "VOL",
+          "x": 0.45,
+          "y": 0.4
+        },
+        {
+          "name": "Rojas",
+          "role": "MEI",
+          "x": 0.6,
+          "y": 0.5
+        },
+        {
+          "name": "David",
+          "role": "ATA",
+          "x": 0.68,
+          "y": 0.8
+        },
+        {
+          "name": "Andrés Gómez",
+          "role": "ATA",
+          "x": 0.68,
+          "y": 0.2
+        },
+        {
+          "name": "Brenner",
+          "role": "ATA",
+          "x": 0.8,
+          "y": 0.5
+        }
+      ],
+      "likes": 31,
+      "publishedAt": "2026-11-07T18:30:00.000Z"
+    }
+  ]
 }

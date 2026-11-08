@@ -4,9 +4,10 @@ import { Pitch } from './components/Pitch';
 import { RosterPanel } from './components/RosterPanel';
 import { OpponentPanel } from './components/OpponentPanel';
 import { ExtrasPanel } from './components/ExtrasPanel';
+import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
-import { storage, FieldTokenData, LineupSnapshot, SavedBoard } from './data/storage';
+import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
 import {
   TacticalPlay,
   PlayFrame,
@@ -16,6 +17,9 @@ import {
 } from './tactics/tacticsLogic';
 
 export default function App() {
+  // Navigation & View
+  const [currentView, setCurrentView] = useState<'portal' | 'tactics'>('portal');
+
   // State
   const [squad, setSquad] = useState<SquadPlayer[]>(INITIAL_SQUAD);
   const [tokens, setTokens] = useState<FieldTokenData[]>([]);
@@ -26,6 +30,11 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState<string>(
     'Prancheta pronta. Adicione jogadores ou selecione o adversário.'
   );
+
+  // Community Mural publishing modal
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [publishAuthor, setPublishAuthor] = useState('');
+  const [publishTitle, setPublishTitle] = useState('');
 
   // Panels
   const [isPlayEditorOpen, setIsPlayEditorOpen] = useState(false);
@@ -570,6 +579,67 @@ export default function App() {
     setSavedBoards(all);
   };
 
+  // Load Community Lineup from Mural
+  const handleLoadCommunityLineup = (lineup: CommunityLineup) => {
+    setSelectedClub(lineup.opponentClub || '');
+    const newTokens: FieldTokenData[] = [];
+    lineup.players.forEach((p, idx) => {
+      const full = INITIAL_SQUAD.find((s) => s.name === p.name);
+      newTokens.push({
+        id: `com_v_${idx}_${Date.now()}`,
+        kind: 'vasco',
+        name: p.name,
+        role: p.role,
+        photo: storage.getPhoto(p.name, full?.photo || p.photo),
+        x: p.x,
+        y: p.y
+      });
+    });
+    // Add centered ball
+    newTokens.push({ id: 'bola', kind: 'ball', x: 0.5, y: 0.5 });
+    handleTokensChange(newTokens);
+    setStatusMessage(`Escalação "${lineup.title}" de ${lineup.author} carregada no campo.`);
+  };
+
+  // Submit current field to Community Mural
+  const handlePublishCommunitySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publishTitle.trim() || !publishAuthor.trim()) {
+      alert('Informe o seu nome e o título da sua formação.');
+      return;
+    }
+
+    const vascoPlayers = tokens
+      .filter((t) => t.kind === 'vasco')
+      .map((t) => ({
+        name: t.name || '',
+        role: t.role || '',
+        photo: t.photo,
+        x: t.x,
+        y: t.y
+      }));
+
+    if (vascoPlayers.length === 0) {
+      alert('Adicione pelo menos alguns jogadores do Vasco no campo antes de publicar.');
+      return;
+    }
+
+    const published = await storage.publishCommunityLineup({
+      author: publishAuthor.trim(),
+      title: publishTitle.trim(),
+      opponentClub: selectedClub || 'Geral',
+      formation: '4-3-3',
+      players: vascoPlayers
+    });
+
+    if (published) {
+      setIsPublishModalOpen(false);
+      setPublishTitle('');
+      setStatusMessage('Sua escalação foi publicada com sucesso no Mural da Torcida!');
+      alert('Escalação publicada no Mural da Torcida com sucesso!');
+    }
+  };
+
   // Alignments & Distribute
   const handleAlignSelected = (type: 'h' | 'v') => {
     if (selectedTokenIds.size < 2) {
@@ -690,12 +760,90 @@ export default function App() {
         onChange={handleBallFileChange}
       />
 
+      {/* Top Application Header Bar */}
+      {!isPresentationMode && (
+        <header className="h-10 px-3 bg-[#0d1410] border border-[#233026] flex items-center justify-between shrink-0 mb-1.5 rounded-lg text-xs shadow-md">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full overflow-hidden border border-[#d62839] flex-none bg-black">
+              <img src="/assets/campo.png" alt="Fala Vascão" className="w-full h-full object-cover scale-150" />
+            </div>
+            <div className="flex items-center gap-1.5 font-black text-white uppercase tracking-wider text-[11px]">
+              <span>Fala Vascão</span>
+              <span className="text-[#6d8274] font-semibold text-[9.5px]">| Portal Oficial & Prancheta</span>
+            </div>
+          </div>
+
+          {/* Navigation Switcher Tabs */}
+          <div className="flex items-center gap-1 bg-[#131c15] p-0.5 rounded-lg border border-[#253528]">
+            <button
+              type="button"
+              onClick={() => setCurrentView('portal')}
+              className={`px-3 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                currentView === 'portal'
+                  ? 'bg-[#d62839] text-white shadow-md'
+                  : 'text-[#8ea295] hover:text-white'
+              }`}
+            >
+              <span>🏠</span>
+              <span>Portal & Vídeos</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentView('tactics')}
+              className={`px-3 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                currentView === 'tactics'
+                  ? 'bg-[#1b6b3b] text-white shadow-md'
+                  : 'text-[#8ea295] hover:text-white'
+              }`}
+            >
+              <span>⚽</span>
+              <span>Prancheta Tática PRO</span>
+            </button>
+          </div>
+
+          {/* External Social Channel Links */}
+          <div className="flex items-center gap-1.5 text-[9.5px] font-bold">
+            <a
+              href="https://www.youtube.com/@FalaVascao1"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-[#ff808e] hover:text-white bg-[#261517] hover:bg-[#3d191d] border border-[#52252a] px-2 py-1 rounded transition"
+            >
+              <span>▶</span>
+              <span>YouTube</span>
+            </a>
+            <a
+              href="https://kick.com/falavascao"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-[#53fc18] hover:text-white bg-[#142614] hover:bg-[#1d3d1d] border border-[#2e5726] px-2 py-1 rounded font-black transition"
+            >
+              <span>K</span>
+              <span>Kick</span>
+            </a>
+          </div>
+        </header>
+      )}
+
       {/* Main Workspace Layout */}
-      <main
-        className={`flex-1 flex gap-2 min-h-0 w-full overflow-hidden ${
-          isPresentationMode ? 'p-0' : ''
-        }`}
-      >
+      {currentView === 'portal' && !isPresentationMode ? (
+        <main className="flex-1 min-h-0 w-full overflow-hidden rounded-lg border border-[#243328] bg-[#0c120e]">
+          <PortalView
+            onOpenTactics={() => setCurrentView('tactics')}
+            onLoadCommunityLineup={(lineup) => {
+              handleLoadCommunityLineup(lineup);
+              setCurrentView('tactics');
+            }}
+          />
+        </main>
+      ) : (
+        <main
+          className={`flex-1 flex gap-2 min-h-0 w-full overflow-hidden ${
+            isPresentationMode ? 'p-0' : ''
+          }`}
+        >
         {/* Left: Vasco Squad Panel */}
         {!isPresentationMode && (
           <RosterPanel
@@ -827,6 +975,7 @@ export default function App() {
                 }}
                 onPresentationMode={() => setIsPresentationMode(true)}
                 onExportPNG={handleExportPNG}
+                onPublishCommunity={() => setIsPublishModalOpen(true)}
                 tokens={tokens}
                 selectedClub={selectedClub}
                 frameCount={currentPlay.frames.length}
@@ -870,6 +1019,81 @@ export default function App() {
           />
         )}
       </main>
+      )}
+
+      {/* Community Publish Modal */}
+      {isPublishModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handlePublishCommunitySubmit}
+            className="w-[min(480px,95vw)] bg-[#101712] border border-[#3e5345] rounded-xl p-5 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#25362a]">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">👥</span>
+                <h3 className="text-base font-black text-white">Publicar no Mural da Torcida</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPublishModalOpen(false)}
+                className="text-gray-400 hover:text-white text-base cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-[#9bb0a2]">
+              Sua escalação atual será compartilhada no portal Fala Vascão para todos os membros e torcedores verem e curtirem!
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-black text-[#8aa092] uppercase mb-1">
+                  Seu Nome ou Apelido no Canal
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={publishAuthor}
+                  onChange={(e) => setPublishAuthor(e.target.value)}
+                  placeholder="Ex: Carlos (Membro Fala Vascão)"
+                  className="w-full h-8 px-2.5 text-xs font-bold bg-[#17221a] text-white border border-[#3a4e40] rounded-lg outline-none focus:border-[#43c776]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-[#8aa092] uppercase mb-1">
+                  Título da Escalação
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={publishTitle}
+                  onChange={(e) => setPublishTitle(e.target.value)}
+                  placeholder="Ex: 4-3-3 Ofensivo para Vencer Domingo"
+                  className="w-full h-8 px-2.5 text-xs font-bold bg-[#17221a] text-white border border-[#3a4e40] rounded-lg outline-none focus:border-[#43c776]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#25362a]">
+              <button
+                type="button"
+                onClick={() => setIsPublishModalOpen(false)}
+                className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow cursor-pointer"
+              >
+                Publicar Escalação
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

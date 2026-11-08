@@ -23,6 +23,7 @@ interface ExtrasPanelProps {
   onDuplicateFrame: () => void;
   onPresentationMode: () => void;
   onExportPNG: () => void;
+  onPublishCommunity?: () => void;
   tokens: FieldTokenData[];
   selectedClub: string;
   frameCount: number;
@@ -48,6 +49,7 @@ export const ExtrasPanel: React.FC<ExtrasPanelProps> = ({
   onDuplicateFrame,
   onPresentationMode,
   onExportPNG,
+  onPublishCommunity,
   tokens,
   selectedClub,
   frameCount
@@ -111,6 +113,17 @@ export const ExtrasPanel: React.FC<ExtrasPanelProps> = ({
             📚 Biblioteca ({savedBoards.length})
           </button>
         </div>
+
+        {onPublishCommunity && (
+          <button
+            type="button"
+            onClick={onPublishCommunity}
+            className="w-full h-7 text-[8.5px] font-black bg-[#1b3d63] hover:bg-[#235387] border border-[#4395c7] text-[#cbe6ff] rounded transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <span>👥</span>
+            <span>Publicar no Mural da Torcida</span>
+          </button>
+        )}
       </div>
 
       {/* Saved Boards Library Drawer */}

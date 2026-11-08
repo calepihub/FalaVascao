@@ -51,6 +51,17 @@ export interface SavedBoard {
   savedAt: string;
 }
 
+export interface CommunityLineup {
+  id: string;
+  author: string;
+  title: string;
+  opponentClub: string;
+  formation: string;
+  players: Array<{ name: string; role: string; x: number; y: number; photo?: string }>;
+  likes: number;
+  publishedAt: string;
+}
+
 class StorageManager {
   private photoCache: Record<string, string> = {};
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -344,6 +355,52 @@ class StorageManager {
         }
       ]
     };
+  }
+
+  async getCommunityLineups(): Promise<CommunityLineup[]> {
+    try {
+      const res = await fetch('/api/community/lineups');
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Could not load community lineups', e);
+    }
+    return [];
+  }
+
+  async publishCommunityLineup(
+    lineup: Omit<CommunityLineup, 'id' | 'likes' | 'publishedAt'>
+  ): Promise<CommunityLineup | null> {
+    try {
+      const res = await fetch('/api/community/lineups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lineup)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.lineup;
+      }
+    } catch (e) {
+      console.warn('Could not publish lineup', e);
+    }
+    return null;
+  }
+
+  async likeCommunityLineup(id: string): Promise<number | null> {
+    try {
+      const res = await fetch('/api/community/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.likes;
+      }
+    } catch {}
+    return null;
   }
 }
 
