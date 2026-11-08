@@ -1,0 +1,6 @@
+{
+  "name": "Prancheta Vascaina PRO V50",
+  "description": "Prancheta tática virtual profissional de futebol do Vasco da Gama com elenco completo, simulação animada de jogadas, lousa tática e banco de dados InterBase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
