@@ -8,6 +8,9 @@ import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
+import { AppUser, SiteSettings, authService, OWNER_EMAIL } from './data/auth';
+import { AdminPanelModal } from './components/AdminPanelModal';
+import { GoogleAuthModal } from './components/GoogleAuthModal';
 import {
   TacticalPlay,
   PlayFrame,
@@ -19,6 +22,28 @@ import {
 export default function App() {
   // Navigation & View
   const [currentView, setCurrentView] = useState<'portal' | 'tactics'>('portal');
+
+  // Auth & Admin state
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => authService.getCurrentUser());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>({
+    muralVisible: true,
+    muralPublicPosting: true,
+    tacticsVisible: true,
+    advancedToolsVisible: true,
+    liveStreamsVisible: true,
+    kickBannerVisible: true
+  });
+  const [isCapturingMuralPhoto, setIsCapturingMuralPhoto] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'warn' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev?.message === message ? null : prev));
+    }, 4500);
+  }, []);
 
   // State
   const [squad, setSquad] = useState<SquadPlayer[]>(INITIAL_SQUAD);
@@ -152,6 +177,16 @@ export default function App() {
       // Load saved boards
       const boards = await storage.getAllBoards();
       setSavedBoards(boards);
+
+      // Load site settings & verify owner
+      const settings = await authService.getSiteSettings();
+      setSiteSettings(settings);
+
+      const logged = authService.getCurrentUser();
+      if (logged) {
+        setCurrentUser(logged);
+        setPublishAuthor(logged.name);
+      }
     }
     init();
   }, []);
@@ -356,7 +391,7 @@ export default function App() {
     });
 
     if (relevantTokens.length === 0) {
-      alert('Coloque no campo os jogadores que participarão desta etapa.');
+      showToast('Coloque no campo os jogadores que participarão desta etapa.', 'warn');
       return;
     }
 
@@ -390,7 +425,7 @@ export default function App() {
   // Replay Animation
   const handlePlayAnimation = async () => {
     if (currentPlay.frames.length < 2) {
-      alert('A jogada precisa ter pelo menos 2 etapas gravadas.');
+      showToast('A jogada precisa ter pelo menos 2 etapas gravadas.', 'warn');
       return;
     }
 
@@ -465,7 +500,7 @@ export default function App() {
       currentPlay.name = autoName;
     }
     if (currentPlay.frames.length < 2) {
-      alert('Grave pelo menos 2 etapas antes de salvar.');
+      showToast('Grave pelo menos 2 etapas antes de salvar.', 'warn');
       return;
     }
 
@@ -474,6 +509,7 @@ export default function App() {
     const all = await storage.getAllPlays();
     setSavedPlays(all);
     setStatusMessage(`Jogada "${currentPlay.name}" salva com sucesso no banco de dados.`);
+    showToast(`Jogada "${currentPlay.name}" salva com sucesso!`, 'success');
   };
 
   // Load Saved Play
@@ -537,7 +573,7 @@ export default function App() {
   // Save Named Board
   const handleSaveBoard = async () => {
     if (!boardMeta.title.trim()) {
-      alert('Informe um título para a prancheta.');
+      showToast('Informe um título para a prancheta.', 'warn');
       return;
     }
 
@@ -601,11 +637,23 @@ export default function App() {
     setStatusMessage(`Escalação "${lineup.title}" de ${lineup.author} carregada no campo.`);
   };
 
-  // Submit current field to Community Mural
+  // Submit current field as a static PHOTO snapshot to Community Mural
   const handlePublishCommunitySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!publishTitle.trim() || !publishAuthor.trim()) {
-      alert('Informe o seu nome e o título da sua formação.');
+
+    if (!currentUser) {
+      showToast('Faça login com sua conta Google para publicar sua escalação no mural.', 'info');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    if (!currentUser.permissions?.canPostMural && !authService.isOwner(currentUser)) {
+      showToast('Seu perfil de membro está com publicações restritas. Solicite liberação ao Administrador.', 'warn');
+      return;
+    }
+
+    if (!publishTitle.trim()) {
+      showToast('Informe o título da sua formação tática.', 'warn');
       return;
     }
 
@@ -620,30 +668,59 @@ export default function App() {
       }));
 
     if (vascoPlayers.length === 0) {
-      alert('Adicione pelo menos alguns jogadores do Vasco no campo antes de publicar.');
+      showToast('Adicione pelo menos alguns jogadores do Vasco no campo antes de publicar.', 'warn');
       return;
     }
 
+    setIsCapturingMuralPhoto(true);
+    setStatusMessage('Capturando foto da prancheta em alta resolução...');
+
+    let imageUrl = '';
+    const pitchwrap = document.getElementById('pitchwrap');
+    if (pitchwrap) {
+      try {
+        const canvas = await html2canvas(pitchwrap, {
+          backgroundColor: '#080c09',
+          scale: 1.8,
+          useCORS: true,
+          logging: false
+        });
+        imageUrl = canvas.toDataURL('image/jpeg', 0.85);
+      } catch (err) {
+        console.warn('Erro ao gerar foto do campo com html2canvas', err);
+      }
+    }
+
+    const authorName = publishAuthor.trim() || currentUser.name;
+
     const published = await storage.publishCommunityLineup({
-      author: publishAuthor.trim(),
+      author: authorName,
+      authorEmail: currentUser.email,
+      authorAvatar: currentUser.avatar,
+      authorRole: currentUser.role,
       title: publishTitle.trim(),
       opponentClub: selectedClub || 'Geral',
       formation: '4-3-3',
-      players: vascoPlayers
+      players: vascoPlayers,
+      imageUrl: imageUrl || undefined
     });
+
+    setIsCapturingMuralPhoto(false);
 
     if (published) {
       setIsPublishModalOpen(false);
       setPublishTitle('');
-      setStatusMessage('Sua escalação foi publicada com sucesso no Mural da Torcida!');
-      alert('Escalação publicada no Mural da Torcida com sucesso!');
+      setStatusMessage('Foto da sua escalação foi publicada no Mural da Torcida com sucesso!');
+      showToast('Sua escalação foi publicada no Mural da Torcida com foto estática protegida!', 'success');
+    } else {
+      showToast('Não foi possível publicar no momento. Tente novamente.', 'error');
     }
   };
 
   // Alignments & Distribute
   const handleAlignSelected = (type: 'h' | 'v') => {
     if (selectedTokenIds.size < 2) {
-      alert('Selecione pelo menos 2 jogadores (Ctrl+clique em cada um) para alinhar.');
+      showToast('Selecione pelo menos 2 jogadores (Ctrl+clique em cada um) para alinhar.', 'info');
       return;
     }
 
@@ -664,7 +741,7 @@ export default function App() {
 
   const handleDistributeSelected = () => {
     if (selectedTokenIds.size < 3) {
-      alert('Selecione pelo menos 3 jogadores para distribuir.');
+      showToast('Selecione pelo menos 3 jogadores para distribuir.', 'info');
       return;
     }
 
@@ -692,7 +769,7 @@ export default function App() {
 
   const handleToggleLockSelected = () => {
     if (selectedTokenIds.size === 0) {
-      alert('Selecione um jogador (Ctrl+clique) para bloquear ou desbloquear a posição.');
+      showToast('Selecione um jogador (Ctrl+clique) para bloquear ou desbloquear a posição.', 'info');
       return;
     }
 
@@ -723,7 +800,7 @@ export default function App() {
       link.click();
       setStatusMessage('Imagem da prancheta exportada com sucesso!');
     } catch {
-      alert('Não foi possível exportar a imagem.');
+      showToast('Não foi possível exportar a imagem.', 'error');
     }
   };
 
@@ -803,8 +880,48 @@ export default function App() {
             </button>
           </div>
 
-          {/* External Social Channel Links */}
-          <div className="flex items-center gap-1.5 text-[9.5px] font-bold">
+          {/* Header Actions: Socials & Auth & Owner Admin Button */}
+          <div className="flex items-center gap-2 text-[9.5px] font-bold">
+            {/* Owner Admin Panel Launch Button */}
+            {authService.isOwner(currentUser) && (
+              <button
+                type="button"
+                onClick={() => setIsAdminModalOpen(true)}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white px-2.5 py-1 rounded-md transition shadow cursor-pointer font-black border border-[#ff6675]"
+                title="Abrir Painel Administrativo do Owner"
+              >
+                <span>🛡️</span>
+                <span>Painel Admin (Owner)</span>
+              </button>
+            )}
+
+            {/* User Login status */}
+            {currentUser ? (
+              <div className="flex items-center gap-1.5 bg-[#142017] border border-[#26372b] px-2 py-0.5 rounded-md">
+                <span className="text-white text-[10px] font-bold">{currentUser.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    authService.logout();
+                    setCurrentUser(null);
+                  }}
+                  className="text-gray-400 hover:text-white text-[9px] cursor-pointer"
+                  title="Sair"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-1 bg-white hover:bg-gray-100 text-gray-900 px-2 py-1 rounded-md transition font-black cursor-pointer shadow"
+              >
+                <span>G</span>
+                <span>Entrar</span>
+              </button>
+            )}
+
             <a
               href="https://www.youtube.com/@FalaVascao1"
               target="_blank"
@@ -814,15 +931,17 @@ export default function App() {
               <span>▶</span>
               <span>YouTube</span>
             </a>
-            <a
-              href="https://kick.com/falavascao"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 text-[#53fc18] hover:text-white bg-[#142614] hover:bg-[#1d3d1d] border border-[#2e5726] px-2 py-1 rounded font-black transition"
-            >
-              <span>K</span>
-              <span>Kick</span>
-            </a>
+            {siteSettings.kickBannerVisible && (
+              <a
+                href="https://kick.com/falavascao"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-[#53fc18] hover:text-white bg-[#142614] hover:bg-[#1d3d1d] border border-[#2e5726] px-2 py-1 rounded font-black transition"
+              >
+                <span>K</span>
+                <span>Kick</span>
+              </a>
+            )}
           </div>
         </header>
       )}
@@ -832,10 +951,14 @@ export default function App() {
         <main className="flex-1 min-h-0 w-full overflow-hidden rounded-lg border border-[#243328] bg-[#0c120e]">
           <PortalView
             onOpenTactics={() => setCurrentView('tactics')}
-            onLoadCommunityLineup={(lineup) => {
-              handleLoadCommunityLineup(lineup);
-              setCurrentView('tactics');
+            currentUser={currentUser}
+            onOpenLogin={() => setIsAuthModalOpen(true)}
+            onLogout={() => {
+              authService.logout();
+              setCurrentUser(null);
             }}
+            onOpenAdminPanel={() => setIsAdminModalOpen(true)}
+            siteSettings={siteSettings}
           />
         </main>
       ) : (
@@ -1030,8 +1153,8 @@ export default function App() {
           >
             <div className="flex items-center justify-between pb-2 border-b border-[#25362a]">
               <div className="flex items-center gap-2">
-                <span className="text-xl">👥</span>
-                <h3 className="text-base font-black text-white">Publicar no Mural da Torcida</h3>
+                <span className="text-xl">📷</span>
+                <h3 className="text-base font-black text-white">Publicar Foto no Mural da Torcida</h3>
               </div>
               <button
                 type="button"
@@ -1043,13 +1166,13 @@ export default function App() {
             </div>
 
             <p className="text-xs text-[#9bb0a2]">
-              Sua escalação atual será compartilhada no portal Fala Vascão para todos os membros e torcedores verem e curtirem!
+              Sua escalação atual será capturada automaticamente em alta resolução e publicada como uma <b>foto estática protegida</b> no Mural da Torcida, informando seu nome como autor!
             </p>
 
             <div className="space-y-3">
               <div>
                 <label className="block text-[10px] font-black text-[#8aa092] uppercase mb-1">
-                  Seu Nome ou Apelido no Canal
+                  Seu Nome ou Apelido de Torcedor
                 </label>
                 <input
                   type="text"
@@ -1079,6 +1202,7 @@ export default function App() {
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#25362a]">
               <button
                 type="button"
+                disabled={isCapturingMuralPhoto}
                 onClick={() => setIsPublishModalOpen(false)}
                 className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white cursor-pointer"
               >
@@ -1086,12 +1210,71 @@ export default function App() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow cursor-pointer"
+                disabled={isCapturingMuralPhoto}
+                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
-                Publicar Escalação
+                {isCapturingMuralPhoto ? (
+                  <>
+                    <span className="inline-block animate-spin">⏳</span>
+                    <span>Capturando Foto...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📷</span>
+                    <span>Tirar Foto e Publicar</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Admin Panel Modal for Owner tazmaniacrvg@gmail.com */}
+      <AdminPanelModal
+        isOpen={isAdminModalOpen}
+        onClose={() => setIsAdminModalOpen(false)}
+        currentUser={currentUser}
+        onSettingsChanged={(updated) => setSiteSettings(updated)}
+      />
+
+      {/* Google Sign-In Authentication Modal */}
+      <GoogleAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setPublishAuthor(user.name);
+          setStatusMessage(`Conectado com sucesso como ${user.name}!`);
+        }}
+      />
+
+      {/* Non-intrusive Toast Notification Banner */}
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-4 right-4 z-[9999] max-w-sm px-4 py-3 rounded-xl shadow-2xl border text-xs font-bold flex items-center gap-2.5 backdrop-blur transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
+            toast.type === 'success'
+              ? 'bg-[#0f2817]/95 border-[#2ea354] text-white'
+              : toast.type === 'error'
+              ? 'bg-[#2a1315]/95 border-[#d62839] text-white'
+              : toast.type === 'warn'
+              ? 'bg-[#2a220f]/95 border-[#d49924] text-amber-200'
+              : 'bg-[#151d18]/95 border-[#395240] text-white'
+          }`}
+        >
+          <span className="text-sm shrink-0">
+            {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : toast.type === 'warn' ? '⚠️' : 'ℹ️'}
+          </span>
+          <span className="flex-1 leading-snug">{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="text-gray-400 hover:text-white text-xs px-1 py-0.5 cursor-pointer ml-1"
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

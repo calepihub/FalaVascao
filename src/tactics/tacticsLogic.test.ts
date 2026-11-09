@@ -118,12 +118,74 @@ test('interpolateMultiFrames glides continuously through multiple frames without
 
   const mid = interpolateMultiFrames(frames, 0.5);
   assert.equal(mid[0].id, 'p1');
-  assert.ok(Math.abs(mid[0].x - 0.5) < 0.05);
+  // Waypoint fidelity: at step boundary (t=0.5), it must be EXACTLY at (0.5, 0.5)
+  assert.ok(Math.abs(mid[0].x - 0.5) < 0.0001);
+  assert.ok(Math.abs(mid[0].y - 0.5) < 0.0001);
 
   const end = interpolateMultiFrames(frames, 1);
   assert.equal(end[0].id, 'p1');
   assert.ok(Math.abs(end[0].x - 0.9) < 0.0001);
   assert.ok(Math.abs(end[0].y - 0.1) < 0.0001);
+});
+
+test('interpolateMultiFrames strictly hits recorded waypoint positions at each step boundary', () => {
+  const frames = [
+    { positions: [{ id: 'p1', x: 0.2, y: 0.3 }] },
+    { positions: [{ id: 'p1', x: 0.4, y: 0.6 }] },
+    { positions: [{ id: 'p1', x: 0.7, y: 0.2 }] },
+    { positions: [{ id: 'p1', x: 0.85, y: 0.9 }] }
+  ];
+
+  // 4 frames = 3 segments (boundaries at 0, 1/3, 2/3, 1)
+  const step0 = interpolateMultiFrames(frames, 0);
+  assert.ok(Math.abs(step0[0].x - 0.2) < 0.0001);
+  assert.ok(Math.abs(step0[0].y - 0.3) < 0.0001);
+
+  const step1 = interpolateMultiFrames(frames, 1 / 3);
+  assert.ok(Math.abs(step1[0].x - 0.4) < 0.0001);
+  assert.ok(Math.abs(step1[0].y - 0.6) < 0.0001);
+
+  const step2 = interpolateMultiFrames(frames, 2 / 3);
+  assert.ok(Math.abs(step2[0].x - 0.7) < 0.0001);
+  assert.ok(Math.abs(step2[0].y - 0.2) < 0.0001);
+
+  const step3 = interpolateMultiFrames(frames, 1);
+  assert.ok(Math.abs(step3[0].x - 0.85) < 0.0001);
+  assert.ok(Math.abs(step3[0].y - 0.9) < 0.0001);
+});
+
+test('interpolateMultiFrames guarantees ZERO drift for stationary players across steps', () => {
+  const frames = [
+    { positions: [{ id: 'runner', x: 0.1, y: 0.1 }, { id: 'keeper', x: 0.05, y: 0.5 }] },
+    { positions: [{ id: 'runner', x: 0.5, y: 0.3 }, { id: 'keeper', x: 0.05, y: 0.5 }] },
+    { positions: [{ id: 'runner', x: 0.8, y: 0.7 }, { id: 'keeper', x: 0.05, y: 0.5 }] }
+  ];
+
+  // The keeper is stationary across all steps. It must NOT drift at ANY timestamp.
+  const samplePoints = [0, 0.15, 0.3, 0.5, 0.65, 0.8, 1];
+  samplePoints.forEach((progress) => {
+    const res = interpolateMultiFrames(frames, progress);
+    const keeper = res.find((p) => p.id === 'keeper')!;
+    assert.ok(Math.abs(keeper.x - 0.05) < 0.0001, `Keeper x drifted at progress ${progress}: got ${keeper.x}`);
+    assert.ok(Math.abs(keeper.y - 0.5) < 0.0001, `Keeper y drifted at progress ${progress}: got ${keeper.y}`);
+  });
+});
+
+test('interpolateMultiFrames guarantees zero overshoot within bounds', () => {
+  const frames = [
+    { positions: [{ id: 'p1', x: 0.2, y: 0.5 }] },
+    { positions: [{ id: 'p1', x: 0.6, y: 0.5 }] },
+    { positions: [{ id: 'p1', x: 0.3, y: 0.5 }] } // moves forward then turns back
+  ];
+
+  for (let t = 0; t <= 1; t += 0.05) {
+    const res = interpolateMultiFrames(frames, t);
+    const p1 = res[0];
+    // x must never overshoot past 0.6 or below 0.2
+    assert.ok(p1.x >= 0.1999 && p1.x <= 0.6001, `Overshoot detected at t=${t}: x=${p1.x}`);
+    // y must stay exactly at 0.5
+    assert.ok(Math.abs(p1.y - 0.5) < 0.0001, `y drift detected at t=${t}: y=${p1.y}`);
+  }
 });
 
 test('calculateDragDelta guarantees ZERO displacement on simple clicks and micro-jitter', () => {

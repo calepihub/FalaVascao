@@ -54,10 +54,14 @@ export interface SavedBoard {
 export interface CommunityLineup {
   id: string;
   author: string;
+  authorEmail?: string;
+  authorAvatar?: string;
+  authorRole?: string;
   title: string;
   opponentClub: string;
   formation: string;
   players: Array<{ name: string; role: string; x: number; y: number; photo?: string }>;
+  imageUrl?: string; // Static pitch photo snapshot (immutable view)
   likes: number;
   publishedAt: string;
 }
@@ -209,15 +213,9 @@ class StorageManager {
         req.onerror = () => resolve([]);
       });
 
-      if (!result || result.length === 0) {
-        // Return demo play if empty
-        const demoPlay = this.createDefaultDemoPlay();
-        await this.savePlay(demoPlay);
-        return [demoPlay];
-      }
-      return result;
+      return result || [];
     } catch {
-      return [this.createDefaultDemoPlay()];
+      return [];
     }
   }
 
@@ -401,6 +399,18 @@ class StorageManager {
       }
     } catch {}
     return null;
+  }
+
+  async deleteCommunityLineup(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/community/lineups?id=${id}`, {
+        method: 'DELETE'
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('Could not delete lineup', e);
+      return false;
+    }
   }
 }
 

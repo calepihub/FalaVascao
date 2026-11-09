@@ -89,7 +89,7 @@ export function easeInOutCubic(t: number): number {
 }
 
 /**
- * 1D Catmull-Rom spline interpolation with 4 control points
+ * 1D Catmull-Rom spline interpolation with 4 control points (retained for backward compatibility)
  */
 export function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const v0 = (p2 - p0) * 0.5;
@@ -105,9 +105,79 @@ export function catmullRom(p0: number, p1: number, p2: number, p3: number, t: nu
 }
 
 /**
- * Continuous Catmull-Rom spline interpolation across all keyframes in a play.
- * Provides C1 velocity continuity: pieces glide seamlessly through waypoints
- * with zero robotic stopping or stutter between steps.
+ * 1D Monotone Cubic Hermite interpolation (Fritsch-Carlson algorithm)
+ * - Strict waypoint fidelity: at t=0 returns values[segmentIndex], at t=1 returns values[segmentIndex+1]
+ * - Guaranteed bounds: NO OVERSHOOT (value stays strictly within [min(p1, p2), max(p1, p2)])
+ * - Rock-solid stationary stability: if p1 === p2, stays exactly at p1 for all t with zero drift
+ * - C1 velocity continuity: glides smoothly across consecutive moving steps without robotic halts
+ */
+export function hermiteMonotone1D(
+  values: number[],
+  segmentIndex: number,
+  t: number
+): number {
+  const n = values.length;
+  if (n === 0) return 0;
+  if (n === 1) return values[0];
+
+  const p1 = values[segmentIndex];
+  const p2 = values[segmentIndex + 1];
+
+  // If piece did not move in this segment, lock coordinate completely (zero drift)
+  if (p1 === p2) return p1;
+
+  // Clamped local t [0, 1]
+  const localT = Math.max(0, Math.min(1, t));
+
+  // If only 2 points total, use standard smoothstep (cubic Hermite with 0 end velocities)
+  if (n === 2) {
+    const s = localT * localT * (3 - 2 * localT);
+    return p1 + (p2 - p1) * s;
+  }
+
+  // Calculate tangents (velocities) at p1 and p2 using Fritsch-Carlson harmonic mean
+  const dCur = p2 - p1;
+
+  // Tangent at p1
+  let v1 = 0;
+  if (segmentIndex > 0) {
+    const dPrev = p1 - values[segmentIndex - 1];
+    if (dPrev * dCur > 0) {
+      v1 = (2 * dPrev * dCur) / (dPrev + dCur);
+    }
+  }
+
+  // Tangent at p2
+  let v2 = 0;
+  if (segmentIndex + 1 < n - 1) {
+    const dNext = values[segmentIndex + 2] - p2;
+    if (dCur * dNext > 0) {
+      v2 = (2 * dCur * dNext) / (dCur + dNext);
+    }
+  }
+
+  // Cubic Hermite basis functions
+  const t2 = localT * localT;
+  const t3 = localT * t2;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + localT;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+
+  const result = h00 * p1 + h10 * v1 + h01 * p2 + h11 * v2;
+
+  // Strict bounding to eliminate numerical floating-point inaccuracies
+  const minVal = Math.min(p1, p2);
+  const maxVal = Math.max(p1, p2);
+  return Math.max(minVal, Math.min(maxVal, result));
+}
+
+/**
+ * Continuous Monotone Spline interpolation across all keyframes in a play.
+ * 1. 100% faithful to recorded waypoints: each frame k is reached at the exact scheduled moment.
+ * 2. Zero parasitic drift: stationary players stay rock-solid in place.
+ * 3. Zero overshoot: trajectories strictly respect tactical lines and bounds.
+ * 4. Fluid momentum: moving players glide continuously between steps.
  */
 export function interpolateMultiFrames(
   frames: PlayFrame[],
@@ -116,14 +186,13 @@ export function interpolateMultiFrames(
   if (!frames || frames.length === 0) return [];
   if (frames.length === 1) return frames[0].positions;
 
-  // Soft easing at global start and end only (preserves continuous motion in between)
-  const clamped = Math.max(0, Math.min(1, globalProgress));
-  const ease = 0.5 * (1 - Math.cos(Math.PI * clamped));
-
   const numSegments = frames.length - 1;
-  const totalT = ease * numSegments;
-  const segmentIndex = Math.min(Math.floor(totalT), numSegments - 1);
-  const localT = Math.max(0, Math.min(1, totalT - segmentIndex));
+  const clampedProgress = Math.max(0, Math.min(1, globalProgress));
+
+  // Linear scaling across segments: frame k is hit exactly at progress = k / numSegments
+  const scaled = clampedProgress * numSegments;
+  const segmentIndex = Math.min(Math.floor(scaled), numSegments - 1);
+  const localT = Math.max(0, Math.min(1, scaled - segmentIndex));
 
   // Collect all unique token IDs across all frames
   const allIds = new Set<string>();
@@ -133,47 +202,32 @@ export function interpolateMultiFrames(
 
   allIds.forEach((id) => {
     // Extract trajectory points for this piece across all frames
-    const pts: { x: number; y: number }[] = [];
-    for (let f = 0; f < frames.length; f++) {
-      const found = frames[f].positions.find((p) => p.id === id);
-      if (found) {
-        pts.push({ x: found.x, y: found.y });
-      } else if (pts.length > 0) {
-        pts.push({ ...pts[pts.length - 1] });
-      } else {
-        let nextFound: { x: number; y: number } | null = null;
-        for (let next = f + 1; next < frames.length; next++) {
-          const nf = frames[next].positions.find((p) => p.id === id);
-          if (nf) {
-            nextFound = { x: nf.x, y: nf.y };
-            break;
-          }
-        }
-        pts.push(nextFound || { x: 0.5, y: 0.5 });
+    const xVals: number[] = [];
+    const yVals: number[] = [];
+
+    // Find first known position as fallback if piece was added midway
+    let fallbackPos: { x: number; y: number } | null = null;
+    for (const f of frames) {
+      const p = f.positions.find((pos) => pos.id === id);
+      if (p) {
+        fallbackPos = { x: p.x, y: p.y };
+        break;
       }
     }
 
-    const p1 = pts[segmentIndex];
-    const p2 = pts[segmentIndex + 1];
+    let lastKnownPos = fallbackPos || { x: 0.5, y: 0.5 };
 
-    if (frames.length === 2) {
-      result.push({
-        id,
-        x: p1.x + (p2.x - p1.x) * localT,
-        y: p1.y + (p2.y - p1.y) * localT
-      });
-      return;
+    for (let f = 0; f < frames.length; f++) {
+      const found = frames[f].positions.find((p) => p.id === id);
+      if (found) {
+        lastKnownPos = { x: found.x, y: found.y };
+      }
+      xVals.push(lastKnownPos.x);
+      yVals.push(lastKnownPos.y);
     }
 
-    // Virtual boundary points for Catmull-Rom
-    const p0 = segmentIndex > 0 ? pts[segmentIndex - 1] : { x: 2 * p1.x - p2.x, y: 2 * p1.y - p2.y };
-    const p3 =
-      segmentIndex + 2 < pts.length
-        ? pts[segmentIndex + 2]
-        : { x: 2 * p2.x - p1.x, y: 2 * p2.y - p1.y };
-
-    const interpX = catmullRom(p0.x, p1.x, p2.x, p3.x, localT);
-    const interpY = catmullRom(p0.y, p1.y, p2.y, p3.y, localT);
+    const interpX = hermiteMonotone1D(xVals, segmentIndex, localT);
+    const interpY = hermiteMonotone1D(yVals, segmentIndex, localT);
 
     result.push({
       id,
