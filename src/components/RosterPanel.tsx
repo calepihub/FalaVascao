@@ -29,6 +29,7 @@ interface RosterPanelProps {
   isAnimating: boolean;
   fieldTokens: FieldTokenData[];
   onLoadDemoPlay: () => void;
+  onToggleCollapse?: () => void;
 }
 
 export const RosterPanel: React.FC<RosterPanelProps> = ({
@@ -53,7 +54,8 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
   onDeleteSavedPlay,
   isAnimating,
   fieldTokens,
-  onLoadDemoPlay
+  onLoadDemoPlay,
+  onToggleCollapse
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -104,7 +106,7 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
           </h2>
           <span className="text-[8px] text-[#78887e]">Vasco da Gama • 2026</span>
         </div>
-        <div>
+        <div className="flex items-center gap-1">
           <input
             ref={fileInputRef}
             type="file"
@@ -121,6 +123,17 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
           >
             📷 Fotos
           </button>
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              title="Ocultar elenco para aumentar o campo"
+              className="text-[8px] px-2 py-0.5 bg-[#1b2820] hover:bg-[#283c2f] border border-[#3c5443] hover:border-[#52be74] text-[#a9c2b2] hover:text-white rounded font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              <span>◀</span>
+              <span>Ocultar</span>
+            </button>
+          )}
         </div>
       </div>
 

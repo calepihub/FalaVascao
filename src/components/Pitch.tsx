@@ -243,7 +243,7 @@ export const Pitch: React.FC<PitchProps> = ({
   return (
     <div
       id="pitchwrap"
-      className="pitchwrap relative w-full h-full flex-1 aspect-[1.42/1] select-none overflow-hidden rounded-lg border-2 border-[#29362d] bg-[#0b120d] shadow-2xl"
+      className="pitchwrap relative aspect-[1.44/1] max-w-full max-h-full w-full h-full select-none overflow-hidden rounded-lg border-2 border-[#29362d] bg-[#0b120d] shadow-2xl mx-auto shrink-0"
     >
       {/* Grass & Pitch Background with Fala Vascão Crest */}
       <div

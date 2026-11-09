@@ -23,6 +23,7 @@ interface OpponentPanelProps {
   polygonPointsCount: number;
   onClosePolygon: () => void;
   onApplyFormation: (formationKey: string) => void;
+  onToggleCollapse?: () => void;
 }
 
 const COLOR_PALETTE = [
@@ -53,7 +54,8 @@ export const OpponentPanel: React.FC<OpponentPanelProps> = ({
   isPolygonActive,
   polygonPointsCount,
   onClosePolygon,
-  onApplyFormation
+  onApplyFormation,
+  onToggleCollapse
 }) => {
   return (
     <aside className="w-[230px] min-w-[215px] max-w-[245px] flex flex-col h-full bg-[#0d130f] border border-[#29362d] rounded-lg p-2 overflow-y-auto space-y-2 select-none scrollbar-thin">
@@ -61,11 +63,24 @@ export const OpponentPanel: React.FC<OpponentPanelProps> = ({
       <section className="bg-[#101712] border border-[#29362d] rounded-lg p-2">
         <div className="flex items-center justify-between text-[9px] font-black tracking-wider text-[#a0aea5] mb-1">
           <span>ADVERSÁRIO</span>
-          {selectedClub && (
-            <span className="text-[8px] text-[#ff7581] font-bold truncate max-w-[120px]">
-              {selectedClub}
-            </span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {selectedClub && (
+              <span className="text-[8px] text-[#ff7581] font-bold truncate max-w-[80px]">
+                {selectedClub}
+              </span>
+            )}
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title="Ocultar painel para aumentar o campo"
+                className="text-[8px] px-2 py-0.5 bg-[#1b2820] hover:bg-[#283c2f] border border-[#3c5443] hover:border-[#52be74] text-[#a9c2b2] hover:text-white rounded font-bold transition flex items-center gap-1 cursor-pointer"
+              >
+                <span>Ocultar</span>
+                <span>▶</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <label className="block text-[8px] font-bold text-[#83948a] mb-1">CLUBE</label>

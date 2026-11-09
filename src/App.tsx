@@ -65,6 +65,8 @@ export default function App() {
   const [isPlayEditorOpen, setIsPlayEditorOpen] = useState(false);
   const [isExtrasOpen, setIsExtrasOpen] = useState(false);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
+  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
 
   // Polygon drawing state
   const [isPolygonActive, setIsPolygonActive] = useState(false);
@@ -364,20 +366,17 @@ export default function App() {
     setStatusMessage(hints[tool] || 'Selecione uma ação.');
   };
 
-  // Handle Fullscreen
-  const handleToggleFullscreen = async () => {
-    const pitchwrap = document.getElementById('pitchwrap');
-    if (!pitchwrap) return;
-
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-        setIsPresentationMode(false);
-      } else {
-        await pitchwrap.requestFullscreen();
-      }
-    } catch {
-      setStatusMessage('Tela cheia não suportada neste navegador.');
+  // Handle Fullscreen / Campo Máximo: collapses both sidebars for maximum field view maintaining ratio without scroll
+  const handleToggleFullscreen = () => {
+    if (!isLeftPanelCollapsed || !isRightPanelCollapsed) {
+      setIsLeftPanelCollapsed(true);
+      setIsRightPanelCollapsed(true);
+      setStatusMessage('Campo ampliado ao máximo! Painéis laterais recolhidos sem rolagem.');
+      showToast('Campo ampliado ao máximo! Use os botões laterais para reabrir.', 'info');
+    } else {
+      setIsLeftPanelCollapsed(false);
+      setIsRightPanelCollapsed(false);
+      setStatusMessage('Painéis laterais restaurados.');
     }
   };
 
@@ -880,6 +879,49 @@ export default function App() {
             </button>
           </div>
 
+          {/* Quick Panel Expand/Collapse Controls for Live Streams */}
+          {currentView === 'tactics' && !isPresentationMode && (
+            <div className="flex items-center gap-1 bg-[#131c15] p-0.5 rounded-lg border border-[#253528]">
+              <button
+                type="button"
+                onClick={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
+                className={`px-2 py-1 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                  !isLeftPanelCollapsed
+                    ? 'bg-[#1a2b1f] text-[#69e095] border border-[#2e5239]'
+                    : 'text-gray-400 hover:text-white hover:bg-[#1a231d]'
+                }`}
+                title={isLeftPanelCollapsed ? 'Mostrar Elenco (Vasco)' : 'Ocultar Elenco (Vasco)'}
+              >
+                <span>{isLeftPanelCollapsed ? '▶' : '◀'}</span>
+                <span>{isLeftPanelCollapsed ? 'Mostrar Elenco' : 'Ocultar Elenco'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleFullscreen}
+                className="px-2 py-1 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer text-amber-300 hover:text-amber-200 bg-[#282210] hover:bg-[#382f16] border border-[#4d401e]"
+                title="Campo Máximo: oculta/mostra ambos os painéis mantendo proporção sem rolagem"
+              >
+                <span>⛶</span>
+                <span>Campo Máximo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
+                className={`px-2 py-1 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                  !isRightPanelCollapsed
+                    ? 'bg-[#1a2b1f] text-[#69e095] border border-[#2e5239]'
+                    : 'text-gray-400 hover:text-white hover:bg-[#1a231d]'
+                }`}
+                title={isRightPanelCollapsed ? 'Mostrar Controles' : 'Ocultar Controles'}
+              >
+                <span>{isRightPanelCollapsed ? 'Mostrar Controles' : 'Ocultar Controles'}</span>
+                <span>{isRightPanelCollapsed ? '◀' : '▶'}</span>
+              </button>
+            </div>
+          )}
+
           {/* Header Actions: Socials & Auth & Owner Admin Button */}
           <div className="flex items-center gap-2 text-[9.5px] font-bold">
             {/* Owner Admin Panel Launch Button */}
@@ -967,83 +1009,116 @@ export default function App() {
             isPresentationMode ? 'p-0' : ''
           }`}
         >
-        {/* Left: Vasco Squad Panel */}
+        {/* Left: Vasco Squad Panel OR Collapsed Vertical Strip */}
         {!isPresentationMode && (
-          <RosterPanel
-            squad={squad}
-            onAddPlayer={handleAddPlayer}
-            onTogglePlayEditor={() => setIsPlayEditorOpen(!isPlayEditorOpen)}
-            onToggleExtras={() => setIsExtrasOpen(!isExtrasOpen)}
-            isPlayEditorOpen={isPlayEditorOpen}
-            isExtrasOpen={isExtrasOpen}
-            onStatusMessage={setStatusMessage}
-            currentPlay={currentPlay}
-            onUpdatePlay={setCurrentPlay}
-            onCaptureFrame={handleCaptureFrame}
-            onApplyFrame={handleApplyFrame}
-            onPlayAnimation={handlePlayAnimation}
-            onStopAnimation={handleStopAnimation}
-            onResetToStart={handleResetToStart}
-            onSavePlay={handleSavePlay}
-            onNewPlay={() => {
-              handleStopAnimation();
-              setCurrentPlay({ name: '', scope: 'both', speed: 1200, frames: [] });
-              setStatusMessage('Nova jogada iniciada. Posicione as peças e adicione a etapa 1.');
-            }}
-            savedPlays={savedPlays}
-            onLoadSavedPlay={handleLoadSavedPlay}
-            onDeleteSavedPlay={async (id) => {
-              if (!confirm('Excluir esta jogada salva?')) return;
-              await storage.deletePlay(id);
-              const all = await storage.getAllPlays();
-              setSavedPlays(all);
-            }}
-            isAnimating={isAnimating}
-            fieldTokens={tokens}
-            onLoadDemoPlay={handleLoadDemoPlay}
-          />
+          !isLeftPanelCollapsed ? (
+            <RosterPanel
+              squad={squad}
+              onAddPlayer={handleAddPlayer}
+              onTogglePlayEditor={() => setIsPlayEditorOpen(!isPlayEditorOpen)}
+              onToggleExtras={() => setIsExtrasOpen(!isExtrasOpen)}
+              isPlayEditorOpen={isPlayEditorOpen}
+              isExtrasOpen={isExtrasOpen}
+              onStatusMessage={setStatusMessage}
+              currentPlay={currentPlay}
+              onUpdatePlay={setCurrentPlay}
+              onCaptureFrame={handleCaptureFrame}
+              onApplyFrame={handleApplyFrame}
+              onPlayAnimation={handlePlayAnimation}
+              onStopAnimation={handleStopAnimation}
+              onResetToStart={handleResetToStart}
+              onSavePlay={handleSavePlay}
+              onNewPlay={() => {
+                handleStopAnimation();
+                setCurrentPlay({ name: '', scope: 'both', speed: 1200, frames: [] });
+                setStatusMessage('Nova jogada iniciada. Posicione as peças e adicione a etapa 1.');
+              }}
+              savedPlays={savedPlays}
+              onLoadSavedPlay={handleLoadSavedPlay}
+              onDeleteSavedPlay={async (id) => {
+                if (!confirm('Excluir esta jogada salva?')) return;
+                await storage.deletePlay(id);
+                const all = await storage.getAllPlays();
+                setSavedPlays(all);
+              }}
+              isAnimating={isAnimating}
+              fieldTokens={tokens}
+              onLoadDemoPlay={handleLoadDemoPlay}
+              onToggleCollapse={() => setIsLeftPanelCollapsed(true)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsLeftPanelCollapsed(false)}
+              title="Expandir Elenco do Vasco"
+              className="w-7 h-full bg-[#0d130f] hover:bg-[#16221a] border border-[#26372b] hover:border-[#43c776] rounded-lg flex flex-col items-center justify-center gap-3 py-3 text-[#95aa9c] hover:text-white transition shadow-lg cursor-pointer shrink-0 select-none group"
+            >
+              <span className="text-xs font-black group-hover:scale-125 transition-transform text-[#43c776]">▶</span>
+              <span className="text-[9px] font-black uppercase [writing-mode:vertical-lr] tracking-widest text-[#8ea896] group-hover:text-[#b4dfbe]">
+                ELENCO VASCO
+              </span>
+              <span className="text-xs">⚽</span>
+            </button>
+          )
         )}
 
         {/* Center: Tactical Pitch & Extras Overlay */}
-        <section className="flex-1 flex flex-col min-w-0 bg-[#101612] border border-[#29362d] rounded-lg p-2 overflow-hidden relative">
-          {/* Pitch & Canvas */}
-          <Pitch
-            tokens={tokens}
-            onTokensChange={(newTokens) => handleTokensChange(newTokens)}
-            tool={currentTool}
-            drawingColor={drawingColor}
-            lineWidth={lineWidth}
-            drawingCanvasRef={drawingCanvasRef}
-            onPolygonStateChange={(active, count) => {
-              setIsPolygonActive(active);
-              setPolygonPointsCount(count);
-            }}
-            onDrawingChange={queueAutoSave}
-            showTrails={showTrails}
-            selectedTokenIds={selectedTokenIds}
-            onSelectToken={(id, multi) => {
-              if (!id) {
-                setSelectedTokenIds(new Set());
-                return;
-              }
-              const updated = new Set(multi ? selectedTokenIds : []);
-              if (updated.has(id)) updated.delete(id);
-              else updated.add(id);
-              setSelectedTokenIds(updated);
-            }}
-            onStatusMessage={setStatusMessage}
-            opponentClubStyle={clubGradientStyle}
-            customBallSvg={customBallSvg}
-            isAnimating={isAnimating}
-          />
+        <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#101612] border border-[#29362d] rounded-lg p-2 overflow-hidden relative">
+          {/* Pitch Container Centered: scales up to maximum space, maintains aspect ratio, strictly ZERO scroll */}
+          <div className="flex-1 min-h-0 min-w-0 w-full h-full flex items-center justify-center overflow-hidden">
+            <Pitch
+              tokens={tokens}
+              onTokensChange={(newTokens) => handleTokensChange(newTokens)}
+              tool={currentTool}
+              drawingColor={drawingColor}
+              lineWidth={lineWidth}
+              drawingCanvasRef={drawingCanvasRef}
+              onPolygonStateChange={(active, count) => {
+                setIsPolygonActive(active);
+                setPolygonPointsCount(count);
+              }}
+              onDrawingChange={queueAutoSave}
+              showTrails={showTrails}
+              selectedTokenIds={selectedTokenIds}
+              onSelectToken={(id, multi) => {
+                if (!id) {
+                  setSelectedTokenIds(new Set());
+                  return;
+                }
+                const updated = new Set(multi ? selectedTokenIds : []);
+                if (updated.has(id)) updated.delete(id);
+                else updated.add(id);
+                setSelectedTokenIds(updated);
+              }}
+              onStatusMessage={setStatusMessage}
+              opponentClubStyle={clubGradientStyle}
+              customBallSvg={customBallSvg}
+              isAnimating={isAnimating}
+            />
+          </div>
 
           {/* Status Bar: clean and simple, no technical database tags */}
           {!isPresentationMode && (
             <div className="h-6 mt-1.5 px-2.5 bg-[#0c120e] rounded border border-[#222c25] flex items-center justify-between text-[9px] text-[#8ea095] shrink-0">
               <span className="truncate">{statusMessage}</span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="text-[8px] text-[#6d8274] font-semibold">Salvamento automático ativo</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {(isLeftPanelCollapsed || isRightPanelCollapsed) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLeftPanelCollapsed(false);
+                      setIsRightPanelCollapsed(false);
+                      setStatusMessage('Painéis laterais restaurados.');
+                    }}
+                    className="text-[8px] text-[#71e39a] hover:underline font-bold cursor-pointer"
+                  >
+                    Restaurar Painéis
+                  </button>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-[8px] text-[#6d8274] font-semibold">Salvamento automático ativo</span>
+                </div>
               </div>
             </div>
           )}
@@ -1107,39 +1182,55 @@ export default function App() {
           )}
         </section>
 
-        {/* Right: Opponent, Controls & Tools Panel */}
+        {/* Right: Opponent, Controls & Tools Panel OR Collapsed Vertical Strip */}
         {!isPresentationMode && (
-          <OpponentPanel
-            selectedClub={selectedClub}
-            onSelectClub={(club) => {
-              setSelectedClub(club);
-              setStatusMessage(
-                club ? `Adversário definido: ${club}. Peças atualizadas.` : 'Selecione o clube.'
-              );
-              queueAutoSave();
-            }}
-            clubGradientStyle={clubGradientStyle}
-            usedOpponentNumbers={usedOpponentNumbers}
-            onAddOpponent={handleAddOpponent}
-            currentTool={currentTool}
-            onSelectTool={handleSelectTool}
-            currentColor={drawingColor}
-            onSelectColor={setDrawingColor}
-            lineWidth={lineWidth}
-            onLineWidthChange={setLineWidth}
-            onClearPlayers={() => {
-              handleTokensChange([]);
-              setStatusMessage('Todas as peças foram removidas do campo.');
-            }}
-            onToggleFullscreen={handleToggleFullscreen}
-            onUndoDraw={() => drawingCanvasRef.current?.undo()}
-            onClearDraw={() => drawingCanvasRef.current?.clear()}
-            onAddBall={handleAddBall}
-            isPolygonActive={isPolygonActive}
-            polygonPointsCount={polygonPointsCount}
-            onClosePolygon={() => drawingCanvasRef.current?.closePolygon()}
-            onApplyFormation={handleApplyFormation}
-          />
+          !isRightPanelCollapsed ? (
+            <OpponentPanel
+              selectedClub={selectedClub}
+              onSelectClub={(club) => {
+                setSelectedClub(club);
+                setStatusMessage(
+                  club ? `Adversário definido: ${club}. Peças atualizadas.` : 'Selecione o clube.'
+                );
+                queueAutoSave();
+              }}
+              clubGradientStyle={clubGradientStyle}
+              usedOpponentNumbers={usedOpponentNumbers}
+              onAddOpponent={handleAddOpponent}
+              currentTool={currentTool}
+              onSelectTool={handleSelectTool}
+              currentColor={drawingColor}
+              onSelectColor={setDrawingColor}
+              lineWidth={lineWidth}
+              onLineWidthChange={setLineWidth}
+              onClearPlayers={() => {
+                handleTokensChange([]);
+                setStatusMessage('Todas as peças foram removidas do campo.');
+              }}
+              onToggleFullscreen={handleToggleFullscreen}
+              onUndoDraw={() => drawingCanvasRef.current?.undo()}
+              onClearDraw={() => drawingCanvasRef.current?.clear()}
+              onAddBall={handleAddBall}
+              isPolygonActive={isPolygonActive}
+              polygonPointsCount={polygonPointsCount}
+              onClosePolygon={() => drawingCanvasRef.current?.closePolygon()}
+              onApplyFormation={handleApplyFormation}
+              onToggleCollapse={() => setIsRightPanelCollapsed(true)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsRightPanelCollapsed(false)}
+              title="Expandir Ferramentas & Adversário"
+              className="w-7 h-full bg-[#0d130f] hover:bg-[#16221a] border border-[#26372b] hover:border-[#43c776] rounded-lg flex flex-col items-center justify-center gap-3 py-3 text-[#95aa9c] hover:text-white transition shadow-lg cursor-pointer shrink-0 select-none group"
+            >
+              <span className="text-xs font-black group-hover:scale-125 transition-transform text-[#43c776]">◀</span>
+              <span className="text-[9px] font-black uppercase [writing-mode:vertical-lr] tracking-widest text-[#8ea896] group-hover:text-[#b4dfbe]">
+                CONTROLES
+              </span>
+              <span className="text-xs">⚙️</span>
+            </button>
+          )
         )}
       </main>
       )}
