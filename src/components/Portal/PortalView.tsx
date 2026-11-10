@@ -11,6 +11,7 @@ interface YouTubeVideo {
   url: string;
   isLive: boolean;
   isShort: boolean;
+  category?: 'lives' | 'shorts' | 'videos';
 }
 
 interface YouTubeChannelData {
@@ -26,6 +27,12 @@ interface YouTubeChannelData {
     kickVideosUrl: string;
   };
   videos: YouTubeVideo[];
+  counts?: {
+    total: number;
+    lives: number;
+    shorts: number;
+    videos: number;
+  };
   lastUpdated: string;
 }
 
@@ -48,7 +55,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
 }) => {
   const [channelData, setChannelData] = useState<YouTubeChannelData | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'lives' | 'shorts'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'lives' | 'shorts' | 'videos'>('all');
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
 
   // Community Mural State (Strictly real data only, zero mock/demo)
@@ -129,10 +136,19 @@ export const PortalView: React.FC<PortalViewProps> = ({
   };
 
   const videos = channelData?.videos || [];
-  const latestLive = videos.find((v) => v.isLive) || videos[0];
+  const livesCount =
+    channelData?.counts?.lives ?? videos.filter((v) => v.isLive || v.category === 'lives').length;
+  const shortsCount =
+    channelData?.counts?.shorts ?? videos.filter((v) => v.isShort || v.category === 'shorts').length;
+  const regularVideosCount =
+    channelData?.counts?.videos ??
+    videos.filter((v) => v.category === 'videos' || (!v.isLive && !v.isShort)).length;
+
+  const latestLive = videos.find((v) => v.isLive || v.category === 'lives') || videos[0];
   const filteredVideos = videos.filter((v) => {
-    if (activeTab === 'lives') return v.isLive;
-    if (activeTab === 'shorts') return v.isShort;
+    if (activeTab === 'lives') return v.isLive || v.category === 'lives';
+    if (activeTab === 'shorts') return v.isShort || v.category === 'shorts';
+    if (activeTab === 'videos') return v.category === 'videos' || (!v.isLive && !v.isShort);
     return true;
   });
 
@@ -411,8 +427,9 @@ export const PortalView: React.FC<PortalViewProps> = ({
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex items-center gap-1.5 bg-[#121a14] p-1 rounded-lg border border-[#26352b] text-xs font-bold">
+            <div className="flex flex-wrap items-center gap-1.5 bg-[#121a14] p-1 rounded-lg border border-[#26352b] text-xs font-bold">
               <button
+                type="button"
                 onClick={() => setActiveTab('all')}
                 className={`px-3 py-1 rounded transition cursor-pointer ${
                   activeTab === 'all'
@@ -423,24 +440,40 @@ export const PortalView: React.FC<PortalViewProps> = ({
                 Todos ({videos.length})
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab('lives')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${
+                className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'lives'
                     ? 'bg-[#d62839] text-white shadow'
                     : 'text-[#90a397] hover:text-white'
                 }`}
               >
-                🔴 Transmissões
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
+                <span>Transmissões ({livesCount})</span>
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab('shorts')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${
+                className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'shorts'
-                    ? 'bg-[#d62839] text-white shadow'
+                    ? 'bg-[#7c3aed] text-white shadow'
                     : 'text-[#90a397] hover:text-white'
                 }`}
               >
-                📱 Shorts
+                <span>📱</span>
+                <span>Shorts ({shortsCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('videos')}
+                className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === 'videos'
+                    ? 'bg-[#1b6b3b] text-white shadow'
+                    : 'text-[#90a397] hover:text-white'
+                }`}
+              >
+                <span>🎬</span>
+                <span>Vídeos ({regularVideosCount})</span>
               </button>
             </div>
           </div>
@@ -454,8 +487,9 @@ export const PortalView: React.FC<PortalViewProps> = ({
             <div className="py-8 text-center text-[#7e9185] bg-[#0f1712] rounded-xl border border-[#212d25]">
               Nenhum vídeo encontrado nesta categoria.
             </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          ) : activeTab === 'shorts' ? (
+            /* Special vertical grid for Shorts */
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
               {filteredVideos.map((video) => {
                 const isSelected = selectedVideoId === video.id;
                 return (
@@ -467,7 +501,71 @@ export const PortalView: React.FC<PortalViewProps> = ({
                     }}
                     className={`group bg-[#101712] hover:bg-[#16211a] border rounded-xl overflow-hidden transition shadow cursor-pointer flex flex-col justify-between ${
                       isSelected
-                        ? 'border-[#d62839] ring-2 ring-[#d62839]/40'
+                        ? 'border-[#7c3aed] ring-2 ring-[#7c3aed]/40'
+                        : 'border-[#26352b] hover:border-[#5a4282]'
+                    }`}
+                  >
+                    <div className="relative aspect-[9/13] w-full overflow-hidden bg-black">
+                      <img
+                        src={video.thumb}
+                        alt={video.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      />
+                      <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-[#7c3aed] text-white font-black text-[9px] rounded uppercase shadow tracking-wider flex items-center gap-1">
+                        <span>📱</span>
+                        <span>SHORT</span>
+                      </span>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                        <span className="w-10 h-10 rounded-full bg-[#7c3aed] text-white flex items-center justify-center text-lg shadow-lg">
+                          ▶
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 flex-1 flex flex-col justify-between">
+                      <h4 className="text-xs font-bold text-white line-clamp-2 leading-snug group-hover:text-[#c4a1ff] transition">
+                        {video.title}
+                      </h4>
+                      <div className="flex items-center justify-between text-[9px] text-[#7a8c81] mt-2 pt-1.5 border-t border-[#1d2720]">
+                        <span className="font-bold text-[#b5a3cf]">Assistir Short</span>
+                        <a
+                          href={video.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-white"
+                          title="Abrir no YouTube Shorts"
+                        >
+                          ↗
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Standard 16:9 Grid for All, Lives, and Videos */
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filteredVideos.map((video) => {
+                const isSelected = selectedVideoId === video.id;
+                const isShort = video.isShort || video.category === 'shorts';
+                const isLive = video.isLive || video.category === 'lives';
+
+                return (
+                  <div
+                    key={video.id}
+                    onClick={() => {
+                      setSelectedVideoId(video.id);
+                      window.scrollTo({ top: 120, behavior: 'smooth' });
+                    }}
+                    className={`group bg-[#101712] hover:bg-[#16211a] border rounded-xl overflow-hidden transition shadow cursor-pointer flex flex-col justify-between ${
+                      isSelected
+                        ? isLive
+                          ? 'border-[#d62839] ring-2 ring-[#d62839]/40'
+                          : isShort
+                          ? 'border-[#7c3aed] ring-2 ring-[#7c3aed]/40'
+                          : 'border-[#1b6b3b] ring-2 ring-[#1b6b3b]/40'
                         : 'border-[#26352b] hover:border-[#3d5244]'
                     }`}
                   >
@@ -477,13 +575,28 @@ export const PortalView: React.FC<PortalViewProps> = ({
                         alt={video.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                       />
-                      {video.isLive && (
-                        <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-red-600 text-white font-black text-[9px] rounded uppercase shadow tracking-wider">
-                          AO VIVO
+                      {isShort ? (
+                        <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-[#7c3aed] text-white font-black text-[9px] rounded uppercase shadow tracking-wider flex items-center gap-1">
+                          <span>📱</span>
+                          <span>SHORT</span>
+                        </span>
+                      ) : isLive ? (
+                        <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-red-600 text-white font-black text-[9px] rounded uppercase shadow tracking-wider flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                          <span>AO VIVO</span>
+                        </span>
+                      ) : (
+                        <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-[#1b6b3b] text-white font-black text-[9px] rounded uppercase shadow tracking-wider flex items-center gap-1">
+                          <span>🎬</span>
+                          <span>VÍDEO</span>
                         </span>
                       )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                        <span className="w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center text-lg shadow-lg">
+                        <span
+                          className={`w-10 h-10 rounded-full text-white flex items-center justify-center text-lg shadow-lg ${
+                            isShort ? 'bg-[#7c3aed]' : isLive ? 'bg-red-600' : 'bg-[#1b6b3b]'
+                          }`}
+                        >
                           ▶
                         </span>
                       </div>
@@ -494,7 +607,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
                         {video.title}
                       </h4>
                       <div className="flex items-center justify-between text-[10px] text-[#7a8c81] mt-2 pt-2 border-t border-[#1d2720]">
-                        <span>{video.published.slice(0, 10)}</span>
+                        <span>{video.published?.slice(0, 10) || 'Recent'}</span>
                         <span className="font-bold text-[#a7baaef0]">Assistir no Portal</span>
                       </div>
                     </div>

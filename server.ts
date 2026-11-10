@@ -42,7 +42,7 @@ function saveDB(data: any) {
   }
 }
 
-// Cache for YouTube RSS feed (60 seconds)
+// Cache for YouTube feed aggregation (120 seconds)
 let youtubeCache: { data: any; expires: number } | null = null;
 
 async function fetchYouTubeFeed() {
@@ -51,55 +51,206 @@ async function fetchYouTubeFeed() {
     return youtubeCache.data;
   }
 
+  const channelId = 'UCKXHqZ8jfdFGpJR_hHVWMqQ';
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
   try {
-    const channelId = 'UCKXHqZ8jfdFGpJR_hHVWMqQ';
-    const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-    const response = await fetch(feedUrl, { headers: { 'User-Agent': 'FalaVascaoPortal/1.0' } });
-    const xml = await response.text();
+    const [rssRes, streamsRes, shortsRes, videosRes] = await Promise.allSettled([
+      fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
+        headers: { 'User-Agent': 'FalaVascaoPortal/1.0' }
+      }),
+      fetch('https://www.youtube.com/@FalaVascao1/streams', { headers }),
+      fetch('https://www.youtube.com/@FalaVascao1/shorts', { headers }),
+      fetch('https://www.youtube.com/@FalaVascao1/videos', { headers })
+    ]);
 
-    const entries: Array<{
-      id: string;
-      title: string;
-      published: string;
-      thumb: string;
-      views: number;
-      url: string;
-      isLive: boolean;
-      isShort: boolean;
-    }> = [];
+    const videoMap = new Map<
+      string,
+      {
+        id: string;
+        title: string;
+        published: string;
+        thumb: string;
+        views: number;
+        url: string;
+        isLive: boolean;
+        isShort: boolean;
+        category: 'lives' | 'shorts' | 'videos';
+      }
+    >();
 
-    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-    let match;
-    while ((match = entryRegex.exec(xml)) !== null) {
-      const chunk = match[1];
-      const id = (chunk.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1];
-      const title = (chunk.match(/<title>([^<]+)<\/title>/) || [])[1];
-      const published = (chunk.match(/<published>([^<]+)<\/published>/) || [])[1];
-      const thumb =
-        (chunk.match(/<media:thumbnail[^>]+url="([^"]+)"/) || [])[1] ||
-        `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-      const viewsStr = (chunk.match(/<media:statistics[^>]+views="([^"]+)"/) || [])[1];
-      const views = viewsStr ? parseInt(viewsStr, 10) : 0;
-
-      if (id && title) {
-        const isLive = title.includes('AO VIVO') || title.includes('🔴') || title.includes('DIRETO DA BARREIRA');
-        const isShort =
-          title.toLowerCase().includes('#shorts') ||
-          title.toLowerCase().includes('#short') ||
-          (title.length < 50 && title.includes('#'));
-
-        entries.push({
-          id,
-          title,
-          published: published || new Date().toISOString(),
-          thumb,
-          views,
-          url: `https://www.youtube.com/watch?v=${id}`,
-          isLive,
-          isShort
+    const addOrUpdate = (
+      id: string,
+      item: {
+        id: string;
+        title: string;
+        published: string;
+        thumb: string;
+        views: number;
+        url: string;
+        isLive: boolean;
+        isShort: boolean;
+        category: 'lives' | 'shorts' | 'videos';
+      }
+    ) => {
+      if (!id || id.length !== 11) return;
+      const existing = videoMap.get(id);
+      if (!existing) {
+        videoMap.set(id, item);
+      } else {
+        videoMap.set(id, {
+          ...existing,
+          ...item,
+          published:
+            existing.published && !existing.published.startsWith(new Date().toISOString().slice(0, 10))
+              ? existing.published
+              : item.published || existing.published,
+          views: existing.views && existing.views > 0 ? existing.views : item.views || 0
         });
       }
+    };
+
+    // 1. Streams (/streams) - Real live broadcasts & full stream recordings
+    if (streamsRes.status === 'fulfilled' && streamsRes.value.ok) {
+      try {
+        const html = await streamsRes.value.text();
+        const lockupRegex =
+          /"lockupMetadataViewModel":\{"title":\{"content":"([^"]+)"\}.*?"(?:watchEndpoint|videoCommand)":\{[^}]*?"videoId":"([a-zA-Z0-9_-]{11})"/g;
+        let m;
+        while ((m = lockupRegex.exec(html)) !== null) {
+          const title = m[1];
+          const id = m[2];
+          addOrUpdate(id, {
+            id,
+            title,
+            published: new Date().toISOString(),
+            thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            views: 0,
+            url: `https://www.youtube.com/watch?v=${id}`,
+            isLive: true,
+            isShort: false,
+            category: 'lives'
+          });
+        }
+      } catch (e) {
+        console.warn('Error parsing streams html', e);
+      }
     }
+
+    // 2. Regular Uploaded Videos (/videos)
+    if (videosRes.status === 'fulfilled' && videosRes.value.ok) {
+      try {
+        const html = await videosRes.value.text();
+        const lockupRegex =
+          /"lockupMetadataViewModel":\{"title":\{"content":"([^"]+)"\}.*?"(?:watchEndpoint|videoCommand)":\{[^}]*?"videoId":"([a-zA-Z0-9_-]{11})"/g;
+        let m;
+        while ((m = lockupRegex.exec(html)) !== null) {
+          const title = m[1];
+          const id = m[2];
+          addOrUpdate(id, {
+            id,
+            title,
+            published: new Date().toISOString(),
+            thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            views: 0,
+            url: `https://www.youtube.com/watch?v=${id}`,
+            isLive: false,
+            isShort: false,
+            category: 'videos'
+          });
+        }
+      } catch (e) {
+        console.warn('Error parsing videos html', e);
+      }
+    }
+
+    // 3. Shorts (/shorts) - Real shorts with titles and portrait links
+    if (shortsRes.status === 'fulfilled' && shortsRes.value.ok) {
+      try {
+        const html = await shortsRes.value.text();
+        const reelRegex = /"reelWatchEndpoint":\{"videoId":"([^"]+)".*?"accessibilityText":"([^"]+)"/g;
+        let m;
+        while ((m = reelRegex.exec(html)) !== null) {
+          const id = m[1];
+          const rawText = m[2];
+          const title = rawText
+            .replace(/,\s*[\d.,]+\s*(?:thousand|million|mil|visualizações|views).*/i, '')
+            .trim();
+          addOrUpdate(id, {
+            id,
+            title,
+            published: new Date().toISOString(),
+            thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            views: 0,
+            url: `https://www.youtube.com/shorts/${id}`,
+            isLive: false,
+            isShort: true,
+            category: 'shorts'
+          });
+        }
+      } catch (e) {
+        console.warn('Error parsing shorts html', e);
+      }
+    }
+
+    // 4. RSS Feed - Most recent uploads with high precision published timestamp and view statistics
+    const rssEntries: string[] = [];
+    if (rssRes.status === 'fulfilled' && rssRes.value.ok) {
+      try {
+        const xml = await rssRes.value.text();
+        const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+        let match;
+        while ((match = entryRegex.exec(xml)) !== null) {
+          const chunk = match[1];
+          const id = (chunk.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1];
+          const title = (chunk.match(/<title>([^<]+)<\/title>/) || [])[1];
+          const published = (chunk.match(/<published>([^<]+)<\/published>/) || [])[1];
+          const thumb =
+            (chunk.match(/<media:thumbnail[^>]+url="([^"]+)"/) || [])[1] ||
+            `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+          const viewsStr = (chunk.match(/<media:statistics[^>]+views="([^"]+)"/) || [])[1];
+          const views = viewsStr ? parseInt(viewsStr, 10) : 0;
+
+          if (id && title) {
+            rssEntries.push(id);
+            const existing = videoMap.get(id);
+            const isShort = existing ? existing.isShort : title.toLowerCase().includes('#short') || (title.length < 50 && title.includes('#'));
+            const isLive = existing ? existing.isLive : title.includes('AO VIVO') || title.includes('🔴') || title.includes('DIRETO DA BARREIRA');
+            const category = isShort ? 'shorts' : isLive ? 'lives' : 'videos';
+
+            addOrUpdate(id, {
+              id,
+              title,
+              published: published || new Date().toISOString(),
+              thumb,
+              views,
+              url: isShort ? `https://www.youtube.com/shorts/${id}` : `https://www.youtube.com/watch?v=${id}`,
+              isLive,
+              isShort,
+              category
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Error parsing RSS XML', e);
+      }
+    }
+
+    // Sort order: items in RSS feed first (chronologically newest), followed by remaining streams, regular videos, then shorts
+    const entries = Array.from(videoMap.values()).sort((a, b) => {
+      const aRss = rssEntries.indexOf(a.id);
+      const bRss = rssEntries.indexOf(b.id);
+      if (aRss !== -1 && bRss !== -1) return aRss - bRss;
+      if (aRss !== -1) return -1;
+      if (bRss !== -1) return 1;
+      if (a.published && b.published && a.published !== b.published) {
+        return new Date(b.published).getTime() - new Date(a.published).getTime();
+      }
+      return 0;
+    });
 
     const result = {
       channel: {
@@ -114,17 +265,23 @@ async function fetchYouTubeFeed() {
         kickVideosUrl: 'https://kick.com/falavascao/videos'
       },
       videos: entries,
+      counts: {
+        total: entries.length,
+        lives: entries.filter((e) => e.isLive || e.category === 'lives').length,
+        shorts: entries.filter((e) => e.isShort || e.category === 'shorts').length,
+        videos: entries.filter((e) => e.category === 'videos' || (!e.isLive && !e.isShort)).length
+      },
       lastUpdated: new Date().toISOString()
     };
 
     youtubeCache = {
       data: result,
-      expires: now + 60000
+      expires: now + 120000 // 2 minutes
     };
 
     return result;
   } catch (e) {
-    console.warn('Could not fetch YouTube RSS feed:', e);
+    console.warn('Could not aggregate YouTube feeds:', e);
     return youtubeCache?.data || { channel: {}, videos: [] };
   }
 }
