@@ -97,11 +97,11 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
   };
 
   return (
-    <aside className="w-[325px] min-w-[300px] max-w-[350px] flex flex-col h-full bg-[#0d130f] border border-[#29362d] rounded-lg p-1.5 overflow-hidden select-none shrink-0">
+    <aside className="w-[230px] min-w-[215px] max-w-[245px] flex flex-col h-full bg-[#0d130f] border border-[#29362d] rounded-lg p-2 overflow-y-auto space-y-1.5 select-none scrollbar-thin shrink-0">
       {/* Header with Title and Photo Import */}
-      <div className="flex items-center justify-between px-1 pb-1 border-b border-[#222c25] mb-1 shrink-0">
+      <div className="flex items-center justify-between pb-1 border-b border-[#222c25] shrink-0">
         <div>
-          <h2 className="text-[11px] font-black tracking-wider text-[#d2dbd5] uppercase leading-none">
+          <h2 className="text-[10px] font-black tracking-wider text-[#d2dbd5] uppercase leading-none">
             ELENCO E FUNÇÕES
           </h2>
           <span className="text-[8px] text-[#78887e]">Vasco da Gama • 2026</span>
@@ -137,8 +137,8 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
         </div>
       </div>
 
-      {/* Roster Section: Ultra-compact, strictly no empty wasted lines */}
-      <div id="roster" className="flex flex-col gap-[2px] shrink-0">
+      {/* Roster Section: Exactly 5 photos per row, no overlap, wraps at 6th player */}
+      <div id="roster" className="flex flex-col gap-1.5 shrink-0">
         {POSITION_GROUPS.map(([groupName, roles]) => {
           const players = squad.filter((p) => roles.includes(p.role));
           if (!players.length) return null;
@@ -146,16 +146,16 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
           return (
             <div
               key={groupName}
-              className="position-group flex-none bg-[#101712] border border-[#232c25] rounded-[6px] px-1.5 py-[2px]"
+              className="position-group bg-[#101712] border border-[#232c25] rounded-[6px] p-1.5"
             >
-              {/* Header line: height 14px */}
-              <div className="flex items-center justify-between h-[13px] min-h-[13px] px-0.5 text-[8px] font-black tracking-wider text-[#9aa99f] leading-[13px]">
+              {/* Header line */}
+              <div className="flex items-center justify-between text-[8px] font-black tracking-wider text-[#9aa99f] mb-1">
                 <span>{groupName}</span>
                 <span className="text-[7.5px] font-bold text-[#6d7e73]">{players.length}</span>
               </div>
 
-              {/* Single row of circular player avatars, exactly 36px, tight gap, NO empty space */}
-              <div className="flex items-center justify-start gap-[3px] overflow-x-auto overflow-y-hidden h-[40px] min-h-[40px] py-[1px] scrollbar-none">
+              {/* Grid of exactly 5 circular player avatars per row, 36px, wrapping seamlessly */}
+              <div className="grid grid-cols-5 gap-1.5 pt-0.5">
                 {players.map((player) => {
                   const photoUrl = storage.getPhoto(player.name, player.photo);
                   const initials = getInitials(player.name);
@@ -167,20 +167,20 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
                       onClick={() => onAddPlayer(player)}
                       title={`${player.name} (${player.role})`}
                       aria-label={`${player.name} - ${player.role}`}
-                      className="group relative flex-none w-[36px] h-[36px] rounded-full p-0 border-2 border-[#d2dad5] bg-[#0d100e] hover:border-[#e32636] hover:scale-105 active:scale-95 transition shadow cursor-pointer"
+                      className="group relative w-[36px] h-[36px] rounded-full p-0 border-2 border-[#d2dad5] bg-[#0d100e] hover:border-[#e32636] hover:scale-105 active:scale-95 transition shadow cursor-pointer flex items-center justify-center"
                     >
-                      <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                      <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center pointer-events-none">
                         {photoUrl ? (
                           <img
                             src={photoUrl}
                             alt={player.name}
-                            className="w-full h-full object-cover object-top select-none pointer-events-none"
+                            className="w-full h-full object-cover object-top select-none"
                             onError={(e) => {
                               (e.currentTarget as HTMLElement).style.display = 'none';
                             }}
                           />
                         ) : (
-                          <span className="text-[11px] font-black text-white">{initials}</span>
+                          <span className="text-[10px] font-black text-white">{initials}</span>
                         )}
                       </div>
                     </button>
