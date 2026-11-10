@@ -68,6 +68,7 @@ export default function App() {
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(false);
+  const [isBottomBarCollapsed, setIsBottomBarCollapsed] = useState(false);
 
   // Polygon drawing state
   const [isPolygonActive, setIsPolygonActive] = useState(false);
@@ -367,19 +368,21 @@ export default function App() {
     setStatusMessage(hints[tool] || 'Selecione uma ação.');
   };
 
-  // Handle Fullscreen / Campo Máximo: collapses all bars (top bar, left panel, right panel) for maximum field view maintaining ratio without scroll
+  // Handle Fullscreen / Campo Máximo: collapses all 4 areas (top bar, bottom bar, left panel, right panel) for maximum field view maintaining ratio without scroll
   const handleToggleFullscreen = () => {
-    if (!isLeftPanelCollapsed || !isRightPanelCollapsed || !isTopBarCollapsed) {
+    if (!isLeftPanelCollapsed || !isRightPanelCollapsed || !isTopBarCollapsed || !isBottomBarCollapsed) {
       setIsLeftPanelCollapsed(true);
       setIsRightPanelCollapsed(true);
       setIsTopBarCollapsed(true);
-      setStatusMessage('Campo ampliado ao máximo! Barra superior e painéis recolhidos sem rolagem.');
+      setIsBottomBarCollapsed(true);
+      setStatusMessage('Campo ampliado ao máximo! Barras e painéis recolhidos sem rolagem.');
       showToast('Campo ampliado ao máximo! Use os botões flutuantes para restaurar.', 'info');
     } else {
       setIsLeftPanelCollapsed(false);
       setIsRightPanelCollapsed(false);
       setIsTopBarCollapsed(false);
-      setStatusMessage('Painéis e barra superior restaurados.');
+      setIsBottomBarCollapsed(false);
+      setStatusMessage('Visão padrão restaurada.');
     }
   };
 
@@ -994,6 +997,24 @@ export default function App() {
         </div>
       )}
 
+      {/* Floating Restore Button for Bottom Status Bar */}
+      {isBottomBarCollapsed && !isPresentationMode && currentView === 'tactics' && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-40">
+          <button
+            type="button"
+            onClick={() => {
+              setIsBottomBarCollapsed(false);
+              setStatusMessage('Barra inferior restaurada.');
+            }}
+            className="px-3.5 py-1 bg-[#0d1410f0] hover:bg-[#16271a] border border-[#2e5038] hover:border-[#4ee586] text-[#78e69f] hover:text-white text-[9.5px] font-black rounded-full shadow-2xl backdrop-blur transition flex items-center gap-1.5 cursor-pointer group"
+            title="Mostrar Barra Inferior"
+          >
+            <span className="group-hover:-translate-y-0.5 transition-transform text-[#4ee586]">▲</span>
+            <span>Mostrar Barra Inferior</span>
+          </button>
+        </div>
+      )}
+
       {/* Main Workspace Layout */}
       {currentView === 'portal' && !isPresentationMode ? (
         <main className="flex-1 min-h-0 w-full overflow-hidden rounded-lg border border-[#243328] bg-[#0c120e]">
@@ -1104,18 +1125,19 @@ export default function App() {
           </div>
 
           {/* Status Bar: clean and simple, no technical database tags */}
-          {!isPresentationMode && (
-            <div className="h-6 mt-1.5 px-2.5 bg-[#0c120e] rounded border border-[#222c25] flex items-center justify-between text-[9px] text-[#8ea095] shrink-0">
+          {!isPresentationMode && !isBottomBarCollapsed && (
+            <div className="h-6 mt-1.5 px-2.5 bg-[#0c120e] rounded border border-[#222c25] flex items-center justify-between text-[9px] text-[#8ea095] shrink-0 select-none">
               <span className="truncate">{statusMessage}</span>
               <div className="flex items-center gap-2 shrink-0">
-                {(isLeftPanelCollapsed || isRightPanelCollapsed || isTopBarCollapsed) && (
+                {(isLeftPanelCollapsed || isRightPanelCollapsed || isTopBarCollapsed || isBottomBarCollapsed) && (
                   <button
                     type="button"
                     onClick={() => {
                       setIsLeftPanelCollapsed(false);
                       setIsRightPanelCollapsed(false);
                       setIsTopBarCollapsed(false);
-                      setStatusMessage('Painéis e barra superior restaurados.');
+                      setIsBottomBarCollapsed(false);
+                      setStatusMessage('Visão padrão restaurada.');
                     }}
                     className="text-[8px] text-[#71e39a] hover:underline font-bold cursor-pointer"
                   >
@@ -1126,6 +1148,19 @@ export default function App() {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span className="text-[8px] text-[#6d8274] font-semibold">Salvamento automático ativo</span>
                 </div>
+                {/* Discreet Hide Bottom Bar Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBottomBarCollapsed(true);
+                    setStatusMessage('Barra inferior oculta. Altura do campo maximizada!');
+                  }}
+                  title="Ocultar barra inferior para aumentar o campo na altura"
+                  className="px-1.5 py-0.5 rounded text-[8px] font-bold transition flex items-center gap-1 cursor-pointer text-[#78e69f] hover:text-white bg-[#142318] hover:bg-[#1f3726] border border-[#2d4d35] ml-1"
+                >
+                  <span>▼</span>
+                  <span>Ocultar Barra</span>
+                </button>
               </div>
             </div>
           )}
