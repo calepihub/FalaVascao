@@ -4,6 +4,7 @@ import { Pitch } from './components/Pitch';
 import { RosterPanel } from './components/RosterPanel';
 import { OpponentPanel } from './components/OpponentPanel';
 import { ExtrasPanel } from './components/ExtrasPanel';
+import { PlayEditor } from './components/PlayEditor';
 import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
@@ -1047,30 +1048,6 @@ export default function App() {
               isPlayEditorOpen={isPlayEditorOpen}
               isExtrasOpen={isExtrasOpen}
               onStatusMessage={setStatusMessage}
-              currentPlay={currentPlay}
-              onUpdatePlay={setCurrentPlay}
-              onCaptureFrame={handleCaptureFrame}
-              onApplyFrame={handleApplyFrame}
-              onPlayAnimation={handlePlayAnimation}
-              onStopAnimation={handleStopAnimation}
-              onResetToStart={handleResetToStart}
-              onSavePlay={handleSavePlay}
-              onNewPlay={() => {
-                handleStopAnimation();
-                setCurrentPlay({ name: '', scope: 'both', speed: 1200, frames: [] });
-                setStatusMessage('Nova jogada iniciada. Posicione as peças e adicione a etapa 1.');
-              }}
-              savedPlays={savedPlays}
-              onLoadSavedPlay={handleLoadSavedPlay}
-              onDeleteSavedPlay={async (id) => {
-                if (!confirm('Excluir esta jogada salva?')) return;
-                await storage.deletePlay(id);
-                const all = await storage.getAllPlays();
-                setSavedPlays(all);
-              }}
-              isAnimating={isAnimating}
-              fieldTokens={tokens}
-              onLoadDemoPlay={handleLoadDemoPlay}
               onToggleCollapse={() => setIsLeftPanelCollapsed(true)}
             />
           ) : (
@@ -1162,6 +1139,40 @@ export default function App() {
                   <span>Ocultar Barra</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Floating Tactical Play Editor Pop-up Dock */}
+          {isPlayEditorOpen && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-35 w-[min(680px,94%)] max-h-[82vh] overflow-y-auto bg-[#0d1410fa] border border-[#3b5142] rounded-2xl p-2.5 shadow-[0_16px_50px_rgba(0,0,0,0.85)] backdrop-blur-md scrollbar-thin">
+              <PlayEditor
+                isOpen={true}
+                onClose={() => setIsPlayEditorOpen(false)}
+                currentPlay={currentPlay}
+                onUpdatePlay={setCurrentPlay}
+                onCaptureFrame={handleCaptureFrame}
+                onApplyFrame={handleApplyFrame}
+                onPlayAnimation={handlePlayAnimation}
+                onStopAnimation={handleStopAnimation}
+                onResetToStart={handleResetToStart}
+                onSavePlay={handleSavePlay}
+                onNewPlay={() => {
+                  handleStopAnimation();
+                  setCurrentPlay({ name: '', scope: 'both', speed: 1200, frames: [] });
+                  setStatusMessage('Nova jogada iniciada. Posicione as peças e adicione a etapa 1.');
+                }}
+                savedPlays={savedPlays}
+                onLoadSavedPlay={handleLoadSavedPlay}
+                onDeleteSavedPlay={async (id) => {
+                  if (!confirm('Excluir esta jogada salva?')) return;
+                  await storage.deletePlay(id);
+                  const all = await storage.getAllPlays();
+                  setSavedPlays(all);
+                }}
+                isAnimating={isAnimating}
+                fieldTokens={tokens}
+                onLoadDemoPlay={handleLoadDemoPlay}
+              />
             </div>
           )}
 

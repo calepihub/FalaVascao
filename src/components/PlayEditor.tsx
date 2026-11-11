@@ -176,6 +176,38 @@ export const PlayEditor: React.FC<PlayEditorProps> = ({
         </div>
       </div>
 
+      {/* Collapsed Compact Floating Bar */}
+      {isCollapsed && (
+        <div className="flex items-center justify-between pt-1 text-[9px]">
+          <span className="text-[#86968c] font-bold">
+            {frameCount} etapa(s) gravada(s)
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onCaptureFrame}
+              className="h-6 px-2.5 text-[8.5px] font-black bg-[#9e1b29] hover:bg-[#bf2132] border border-[#ff6b7b] text-white rounded shadow transition flex items-center gap-1 cursor-pointer active:scale-95"
+            >
+              <span>●</span>
+              <span>Gravar Etapa</span>
+            </button>
+            <button
+              type="button"
+              onClick={onPlayAnimation}
+              disabled={frameCount < 2 || isAnimating}
+              className={`h-6 px-2.5 text-[8.5px] font-black rounded border transition flex items-center gap-1 cursor-pointer ${
+                frameCount >= 2 && !isAnimating
+                  ? 'bg-[#176b3b] hover:bg-[#1f874b] border-[#43c776] text-white'
+                  : 'bg-[#15231a] border-[#25392b] text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              <span>▶</span>
+              <span>Reproduzir</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {!isCollapsed && (
         <div className="space-y-1.5 text-[#cbd6cf]">
           {/* Quick Help & Demo buttons */}

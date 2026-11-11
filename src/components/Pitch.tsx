@@ -292,7 +292,7 @@ export const Pitch: React.FC<PitchProps> = ({
                   key={token.id}
                   data-anim-id={token.id}
                   className={`token ball-token absolute pointer-events-auto cursor-grab active:cursor-grabbing z-30 touch-none select-none ${
-                    isAnimating ? 'transition-all duration-300 ease-linear' : ''
+                    isAnimating ? 'transition-none will-change-[left,top]' : ''
                   } ${isHighlighted ? 'scale-110 ring-4 ring-yellow-400' : ''}`}
                   style={{
                     left: `calc(${token.x * 100}% - 16px)`,
@@ -319,7 +319,7 @@ export const Pitch: React.FC<PitchProps> = ({
                   data-anim-id={token.id}
                   data-opponent={token.num}
                   className={`token opponent-token absolute pointer-events-auto cursor-grab active:cursor-grabbing rounded-full border-2 border-white flex items-center justify-center font-black text-white text-[11px] shadow-lg z-20 touch-none select-none ${
-                    isAnimating ? 'transition-all duration-300 ease-linear' : ''
+                    isAnimating ? 'transition-none will-change-[left,top]' : ''
                   } ${token.locked ? 'ring-2 ring-yellow-400 opacity-90' : ''} ${
                     isSelected ? 'ring-3 ring-cyan-400 shadow-cyan-500/50' : ''
                   } ${isHighlighted ? 'ring-4 ring-yellow-300 scale-105' : ''}`}
@@ -357,7 +357,7 @@ export const Pitch: React.FC<PitchProps> = ({
                 data-anim-id={token.id}
                 data-player-name={token.name}
                 className={`token absolute pointer-events-auto cursor-grab active:cursor-grabbing rounded-full border-2 border-white flex items-center justify-center font-bold text-white shadow-xl z-20 bg-[#0d100e] touch-none select-none ${
-                  isAnimating ? 'transition-all duration-300 ease-linear' : ''
+                  isAnimating ? 'transition-none will-change-[left,top]' : ''
                 } ${token.locked ? 'ring-2 ring-yellow-400' : ''} ${
                   isSelected ? 'ring-3 ring-cyan-400 shadow-cyan-500/50' : ''
                 } ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : ''}`}

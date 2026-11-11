@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CommunityLineup, storage } from '../../data/storage';
 import { AppUser, SiteSettings, authService } from '../../data/auth';
+import { FALLBACK_CHANNEL_DATA } from '../../data/fallbackVideos';
 
 interface YouTubeVideo {
   id: string;
@@ -75,14 +76,21 @@ export const PortalView: React.FC<PortalViewProps> = ({
         const res = await fetch('/api/youtube/videos');
         if (res.ok) {
           const data = await res.json();
-          setChannelData(data);
-          if (data.videos?.length > 0) {
+          if (data && data.videos && data.videos.length > 0) {
+            setChannelData(data);
             const live = data.videos.find((v: YouTubeVideo) => v.isLive);
             setSelectedVideoId(live ? live.id : data.videos[0].id);
+            return;
           }
         }
+        throw new Error('API do servidor indisponível (hospedagem estática Netlify/GitHub)');
       } catch (e) {
-        console.warn('Error loading YouTube data', e);
+        // Fallback for Netlify, GitHub Pages, or offline mode
+        setChannelData(FALLBACK_CHANNEL_DATA as any);
+        if (FALLBACK_CHANNEL_DATA.videos?.length > 0) {
+          const live = FALLBACK_CHANNEL_DATA.videos.find((v) => v.isLive);
+          setSelectedVideoId(live ? live.id : FALLBACK_CHANNEL_DATA.videos[0].id);
+        }
       } finally {
         setLoadingVideos(false);
       }

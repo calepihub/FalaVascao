@@ -1,8 +1,7 @@
 import React, { useRef } from 'react';
 import { POSITION_GROUPS, SquadPlayer } from '../data/squad';
-import { getInitials, normName, TacticalPlay, PlayFrame } from '../tactics/tacticsLogic';
-import { storage, FieldTokenData } from '../data/storage';
-import { PlayEditor } from './PlayEditor';
+import { getInitials, normName } from '../tactics/tacticsLogic';
+import { storage } from '../data/storage';
 
 interface RosterPanelProps {
   squad: SquadPlayer[];
@@ -12,23 +11,6 @@ interface RosterPanelProps {
   isPlayEditorOpen: boolean;
   isExtrasOpen: boolean;
   onStatusMessage: (msg: string) => void;
-
-  // Play editor props passed to render directly inside #playPanelHost
-  currentPlay: TacticalPlay;
-  onUpdatePlay: (play: TacticalPlay) => void;
-  onCaptureFrame: () => void;
-  onApplyFrame: (frame: PlayFrame) => void;
-  onPlayAnimation: () => void;
-  onStopAnimation: () => void;
-  onResetToStart: () => void;
-  onSavePlay: () => void;
-  onNewPlay: () => void;
-  savedPlays: TacticalPlay[];
-  onLoadSavedPlay: (play: TacticalPlay) => void;
-  onDeleteSavedPlay: (id: number | string) => void;
-  isAnimating: boolean;
-  fieldTokens: FieldTokenData[];
-  onLoadDemoPlay: () => void;
   onToggleCollapse?: () => void;
 }
 
@@ -40,21 +22,6 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
   isPlayEditorOpen,
   isExtrasOpen,
   onStatusMessage,
-  currentPlay,
-  onUpdatePlay,
-  onCaptureFrame,
-  onApplyFrame,
-  onPlayAnimation,
-  onStopAnimation,
-  onResetToStart,
-  onSavePlay,
-  onNewPlay,
-  savedPlays,
-  onLoadSavedPlay,
-  onDeleteSavedPlay,
-  isAnimating,
-  fieldTokens,
-  onLoadDemoPlay,
   onToggleCollapse
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -221,34 +188,44 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
         </button>
       </div>
 
-      {/* #playPanelHost: opens directly below the buttons in the empty space below the players */}
+      {/* Area below buttons */}
       <div id="playPanelHost" className="flex-1 min-h-0 overflow-y-auto mt-1 pr-0.5 scrollbar-thin">
         {isPlayEditorOpen ? (
-          <PlayEditor
-            isOpen={true}
-            onClose={onTogglePlayEditor}
-            currentPlay={currentPlay}
-            onUpdatePlay={onUpdatePlay}
-            onCaptureFrame={onCaptureFrame}
-            onApplyFrame={onApplyFrame}
-            onPlayAnimation={onPlayAnimation}
-            onStopAnimation={onStopAnimation}
-            onResetToStart={onResetToStart}
-            onSavePlay={onSavePlay}
-            onNewPlay={onNewPlay}
-            savedPlays={savedPlays}
-            onLoadSavedPlay={onLoadSavedPlay}
-            onDeleteSavedPlay={onDeleteSavedPlay}
-            isAnimating={isAnimating}
-            fieldTokens={fieldTokens}
-            onLoadDemoPlay={onLoadDemoPlay}
-          />
+          <div className="h-full flex flex-col items-center justify-center text-center p-2.5 text-[#64756b] border border-[#2d6b41] bg-[#102216] rounded-md min-h-[80px]">
+            <span className="text-lg mb-1 animate-pulse">🎬</span>
+            <span className="text-[9px] font-black text-[#71e39a]">Editor em Pop-up Ativo</span>
+            <span className="text-[7.5px] text-[#9bb5a4] mt-0.5 max-w-[200px]">
+              A janela de animação está aberta flutuando no campo. Arraste as peças e grave as etapas!
+            </span>
+            <button
+              type="button"
+              onClick={onTogglePlayEditor}
+              className="mt-2 text-[8px] px-2 py-0.5 bg-[#8e1724] hover:bg-[#b01e30] text-white rounded font-bold cursor-pointer"
+            >
+              Fechar Pop-up
+            </button>
+          </div>
+        ) : isExtrasOpen ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-2.5 text-[#64756b] border border-[#8e2430] bg-[#1e1315] rounded-md min-h-[80px]">
+            <span className="text-lg mb-1">⚙</span>
+            <span className="text-[9px] font-black text-[#ff808e]">Recursos em Pop-up Ativo</span>
+            <span className="text-[7.5px] text-[#caa7ac] mt-0.5 max-w-[200px]">
+              A janela de recursos e configurações está aberta flutuando no campo.
+            </span>
+            <button
+              type="button"
+              onClick={onToggleExtras}
+              className="mt-2 text-[8px] px-2 py-0.5 bg-[#421d23] hover:bg-[#5e252d] text-[#ff99a4] rounded font-bold cursor-pointer"
+            >
+              Fechar Pop-up
+            </button>
+          </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-3 text-[#64756b] border border-dashed border-[#1f2922] rounded-md min-h-[80px]">
             <span className="text-xl mb-1">🎬</span>
             <span className="text-[9px] font-bold text-[#8ba093]">Área de Jogadas</span>
-            <span className="text-[7.5px] text-[#55665c] mt-0.5 max-w-[210px]">
-              Clique em <b>CRIAR / EDITAR JOGADAS</b> acima para abrir a janela de animação e etapas nesta área.
+            <span className="text-[7.5px] text-[#55665c] mt-0.5 max-w-[200px]">
+              Clique em <b>CRIAR / EDITAR JOGADAS</b> acima para abrir a janela pop-up de etapas e animação.
             </span>
           </div>
         )}
