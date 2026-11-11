@@ -8,7 +8,7 @@ interface SoccerBallProps {
 
 export const SoccerBall: React.FC<SoccerBallProps> = ({
   customSvgUrl,
-  size = 32,
+  size = 22,
   className = ''
 }) => {
   if (customSvgUrl) {

@@ -295,10 +295,10 @@ export const Pitch: React.FC<PitchProps> = ({
                     isAnimating ? 'transition-none will-change-[left,top]' : ''
                   } ${isHighlighted ? 'scale-110 ring-4 ring-yellow-400' : ''}`}
                   style={{
-                    left: `calc(${token.x * 100}% - 16px)`,
-                    top: `calc(${token.y * 100}% - 16px)`,
-                    width: '32px',
-                    height: '32px'
+                    left: `calc(${token.x * 100}% - 11px)`,
+                    top: `calc(${token.y * 100}% - 11px)`,
+                    width: '22px',
+                    height: '22px'
                   }}
                   onPointerDown={(e) => handlePointerDownToken(e, token)}
                   onPointerMove={handlePointerMoveToken}
@@ -307,7 +307,7 @@ export const Pitch: React.FC<PitchProps> = ({
                   onDoubleClick={(e) => handleTokenDblClick(token, e)}
                   title="Bola de Futebol (arraste ou clique duplo para remover)"
                 >
-                  <SoccerBall customSvgUrl={customBallSvg} size={32} />
+                  <SoccerBall customSvgUrl={customBallSvg} size={22} />
                 </div>
               );
             }
