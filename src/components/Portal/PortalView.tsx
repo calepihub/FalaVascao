@@ -43,6 +43,7 @@ interface PortalViewProps {
   onOpenLogin: () => void;
   onLogout: () => void;
   onOpenAdminPanel: () => void;
+  onOpenAdminProfile?: () => void;
   siteSettings: SiteSettings;
 }
 
@@ -52,6 +53,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
   onOpenLogin,
   onLogout,
   onOpenAdminPanel,
+  onOpenAdminProfile,
   siteSettings
 }) => {
   const [channelData, setChannelData] = useState<YouTubeChannelData | null>(null);
@@ -172,72 +174,82 @@ export const PortalView: React.FC<PortalViewProps> = ({
               <span className="text-[11px] font-bold text-[#8ea394]">Portal Oficial da Torcida Vascaína</span>
             </div>
 
-            <div className="flex items-center gap-2">
-              {currentUser ? (
-                <div className="flex items-center gap-2">
-                  {/* Owner Admin Badge & Button */}
-                  {isOwner && (
+              <div className="flex items-center gap-2">
+                {currentUser ? (
+                  <div className="flex items-center gap-2">
+                    {/* Owner Admin Badge & Button */}
+                    {isOwner && (
+                      <button
+                        onClick={onOpenAdminPanel}
+                        className="px-3 py-1 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-[0_0_12px_rgba(214,40,57,0.4)] cursor-pointer"
+                        title="Abrir Painel Administrativo do Owner"
+                      >
+                        <span>🛡️</span>
+                        <span>Painel Admin</span>
+                      </button>
+                    )}
+
+                    {/* User Profile Chip - Clickable to open Profile */}
                     <button
-                      onClick={onOpenAdminPanel}
-                      className="px-3 py-1 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-[0_0_12px_rgba(214,40,57,0.4)] cursor-pointer"
+                      type="button"
+                      onClick={() => onOpenAdminProfile && onOpenAdminProfile()}
+                      className="flex items-center gap-2 bg-[#142017] hover:bg-[#1d2f22] border border-[#2b3d2f] hover:border-[#43c776] px-2.5 py-1 rounded-lg cursor-pointer transition"
+                      title={isOwner ? "Ver Perfil do Administrador Master (tazmaniacrvg@gmail.com)" : "Ver meu perfil"}
                     >
-                      <span>🛡️</span>
-                      <span>Painel Administrativo (Owner)</span>
+                      <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#d62839] to-[#1d2a1f] flex items-center justify-center font-black text-white text-[10px] overflow-hidden shadow">
+                        {currentUser.avatar ? (
+                          <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          isOwner ? '👑' : currentUser.name.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <span className="font-bold text-white text-xs max-w-[130px] truncate">
+                        {currentUser.name}
+                      </span>
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase ${
+                        isOwner
+                          ? 'bg-[#d62839] text-white'
+                          : 'bg-black/40 text-[#55db88]'
+                      }`}>
+                        {isOwner ? '👑 ADMIN' : currentUser.role}
+                      </span>
                     </button>
-                  )}
 
-                  {/* User Profile Chip */}
-                  <div className="flex items-center gap-2 bg-[#142017] border border-[#2b3d2f] px-2.5 py-1 rounded-lg">
-                    <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#d62839] to-[#1d2a1f] flex items-center justify-center font-black text-white text-[10px] overflow-hidden">
-                      {currentUser.avatar ? (
-                        <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
-                      ) : (
-                        currentUser.name.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <span className="font-bold text-white text-xs max-w-[130px] truncate">
-                      {currentUser.name}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-black/40 text-[#55db88] font-bold uppercase">
-                      {currentUser.role}
-                    </span>
+                    <button
+                      onClick={onLogout}
+                      className="px-2 py-1 bg-[#1a251d] hover:bg-[#2e191c] text-[#9fb3a6] hover:text-[#ff9ba6] rounded text-xs transition cursor-pointer"
+                      title="Sair da Conta Google"
+                    >
+                      Sair
+                    </button>
                   </div>
-
+                ) : (
                   <button
-                    onClick={onLogout}
-                    className="px-2 py-1 bg-[#1a251d] hover:bg-[#253629] text-[#9fb3a6] hover:text-white rounded text-xs transition cursor-pointer"
-                    title="Sair da Conta Google"
+                    onClick={onOpenLogin}
+                    className="px-3.5 py-1.5 bg-white hover:bg-gray-100 text-gray-900 rounded-lg text-xs font-black flex items-center gap-2 transition shadow cursor-pointer"
                   >
-                    Sair
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                      />
+                    </svg>
+                    <span>Fazer login com o Google</span>
                   </button>
-                </div>
-              ) : (
-                <button
-                  onClick={onOpenLogin}
-                  className="px-3.5 py-1.5 bg-white hover:bg-gray-100 text-gray-900 rounded-lg text-xs font-black flex items-center gap-2 transition shadow cursor-pointer"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                    />
-                  </svg>
-                  <span>Entrar com Google</span>
-                </button>
-              )}
-            </div>
+                )}
+              </div>
           </div>
 
           {/* Main Hero Banner */}

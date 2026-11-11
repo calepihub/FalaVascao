@@ -20,6 +20,7 @@ interface PlayEditorProps {
   isAnimating: boolean;
   fieldTokens: FieldTokenData[];
   onLoadDemoPlay: () => void;
+  hideHeader?: boolean;
 }
 
 export const PlayEditor: React.FC<PlayEditorProps> = ({
@@ -38,7 +39,8 @@ export const PlayEditor: React.FC<PlayEditorProps> = ({
   onLoadSavedPlay,
   onDeleteSavedPlay,
   isAnimating,
-  onLoadDemoPlay
+  onLoadDemoPlay,
+  hideHeader = false
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
@@ -142,39 +144,41 @@ export const PlayEditor: React.FC<PlayEditorProps> = ({
 
   return (
     <div className="w-full bg-[#101712] border border-[#354339] rounded-lg p-2 select-none space-y-2 mt-1 shadow-inner">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-1 border-b border-[#243128]">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12px]">🎬</span>
-          <div>
-            <h3 className="text-[10px] font-black text-white leading-tight uppercase tracking-wider">
-              Editor de Jogadas
-            </h3>
-            <p className="text-[7.5px] text-[#86968c] leading-tight">
-              Grave etapas e reproduza com animação suave
-            </p>
+      {/* Header - only if not hidden by DraggablePopup */}
+      {!hideHeader && (
+        <div className="flex items-center justify-between pb-1 border-b border-[#243128]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[12px]">🎬</span>
+            <div>
+              <h3 className="text-[10px] font-black text-white leading-tight uppercase tracking-wider">
+                Editor de Jogadas
+              </h3>
+              <p className="text-[7.5px] text-[#86968c] leading-tight">
+                Grave etapas e reproduza com animação suave
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              title={isCollapsed ? 'Expandir' : 'Recolher'}
+              className="w-5 h-5 text-[9px] font-bold bg-[#18211b] hover:bg-[#253229] border border-[#37463b] text-white rounded flex items-center justify-center cursor-pointer"
+            >
+              {isCollapsed ? '⌃' : '⌄'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Fechar editor"
+              className="w-5 h-5 text-[9px] font-bold bg-[#29171a] hover:bg-[#421d23] border border-[#6b2c34] text-[#ff99a4] rounded flex items-center justify-center cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
         </div>
-
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            title={isCollapsed ? 'Expandir' : 'Recolher'}
-            className="w-5 h-5 text-[9px] font-bold bg-[#18211b] hover:bg-[#253229] border border-[#37463b] text-white rounded flex items-center justify-center"
-          >
-            {isCollapsed ? '⌃' : '⌄'}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Fechar editor"
-            className="w-5 h-5 text-[9px] font-bold bg-[#29171a] hover:bg-[#421d23] border border-[#6b2c34] text-[#ff99a4] rounded flex items-center justify-center"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Collapsed Compact Floating Bar */}
       {isCollapsed && (

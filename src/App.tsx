@@ -12,6 +12,8 @@ import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } 
 import { AppUser, SiteSettings, authService, OWNER_EMAIL } from './data/auth';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
+import { AdminProfileModal } from './components/AdminProfileModal';
+import { DraggablePopup } from './components/DraggablePopup';
 import {
   TacticalPlay,
   PlayFrame,
@@ -28,6 +30,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => authService.getCurrentUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isAdminProfileOpen, setIsAdminProfileOpen] = useState(false);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>({
     muralVisible: true,
     muralPublicPosting: true,
@@ -916,31 +919,45 @@ export default function App() {
 
           {/* Header Actions: Socials & Auth & Owner Admin Button */}
           <div className="flex items-center gap-2 text-[9.5px] font-bold">
-            {/* Owner Admin Panel Launch Button */}
+            {/* Owner Quick Admin Panel Button */}
             {authService.isOwner(currentUser) && (
               <button
                 type="button"
                 onClick={() => setIsAdminModalOpen(true)}
                 className="flex items-center gap-1.5 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white px-2.5 py-1 rounded-md transition shadow cursor-pointer font-black border border-[#ff6675]"
-                title="Abrir Painel Administrativo do Owner"
+                title="Abrir Painel Administrativo Geral"
               >
                 <span>🛡️</span>
-                <span>Painel Admin (Owner)</span>
+                <span>Painel Admin</span>
               </button>
             )}
 
-            {/* User Login status */}
+            {/* User Profile / Login status */}
             {currentUser ? (
-              <div className="flex items-center gap-1.5 bg-[#142017] border border-[#26372b] px-2 py-0.5 rounded-md">
-                <span className="text-white text-[10px] font-bold">{currentUser.name}</span>
+              <div className="flex items-center gap-1 bg-[#142017] border border-[#26372b] px-2 py-0.5 rounded-md">
+                <button
+                  type="button"
+                  onClick={() => setIsAdminProfileOpen(true)}
+                  className="flex items-center gap-1.5 hover:text-emerald-300 transition cursor-pointer"
+                  title={authService.isOwner(currentUser) ? "Ver Perfil de Administrador (tazmaniacrvg@gmail.com)" : "Ver perfil"}
+                >
+                  <span className="text-xs">{authService.isOwner(currentUser) ? '👑' : '👤'}</span>
+                  <span className="text-white text-[10px] font-black">{currentUser.name}</span>
+                  {authService.isOwner(currentUser) && (
+                    <span className="text-[8px] px-1 py-0.2 rounded font-black bg-[#d62839] text-white uppercase tracking-wider">
+                      ADMIN
+                    </span>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     authService.logout();
                     setCurrentUser(null);
+                    showToast('Você desconectou da sua conta Google.', 'info');
                   }}
-                  className="text-gray-400 hover:text-white text-[9px] cursor-pointer"
-                  title="Sair"
+                  className="text-gray-400 hover:text-[#ff8e99] text-[10px] ml-1 px-1 cursor-pointer"
+                  title="Sair da Conta Google"
                 >
                   ✕
                 </button>
@@ -949,10 +966,28 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1 bg-white hover:bg-gray-100 text-gray-900 px-2 py-1 rounded-md transition font-black cursor-pointer shadow"
+                className="flex items-center gap-1.5 bg-white hover:bg-gray-100 text-gray-900 px-2.5 py-1 rounded-md transition font-black cursor-pointer shadow"
+                title="Fazer login com a Conta Google"
               >
-                <span>G</span>
-                <span>Entrar</span>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+                <span>Entrar com Google</span>
               </button>
             )}
 
@@ -1028,6 +1063,7 @@ export default function App() {
               setCurrentUser(null);
             }}
             onOpenAdminPanel={() => setIsAdminModalOpen(true)}
+            onOpenAdminProfile={() => setIsAdminProfileOpen(true)}
             siteSettings={siteSettings}
           />
         </main>
@@ -1142,12 +1178,23 @@ export default function App() {
             </div>
           )}
 
-          {/* Floating Tactical Play Editor Pop-up Dock */}
+          {/* Movable / Draggable Tactical Play Editor Pop-up */}
           {isPlayEditorOpen && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-35 w-[min(680px,94%)] max-h-[82vh] overflow-y-auto bg-[#0d1410fa] border border-[#3b5142] rounded-2xl p-2.5 shadow-[0_16px_50px_rgba(0,0,0,0.85)] backdrop-blur-md scrollbar-thin">
+            <DraggablePopup
+              id="tactical-play-editor"
+              isOpen={isPlayEditorOpen}
+              onClose={() => setIsPlayEditorOpen(false)}
+              title="Criador & Editor de Jogadas"
+              subtitle="Grave etapas e reproduza a movimentação tática"
+              icon="🎬"
+              badge={`${currentPlay.frames.length} etapa${currentPlay.frames.length === 1 ? '' : 's'}`}
+              badgeColor={currentPlay.frames.length > 0 ? 'bg-emerald-600' : 'bg-zinc-700'}
+              width="w-[min(680px,94vw)]"
+            >
               <PlayEditor
                 isOpen={true}
                 onClose={() => setIsPlayEditorOpen(false)}
+                hideHeader={true}
                 currentPlay={currentPlay}
                 onUpdatePlay={setCurrentPlay}
                 onCaptureFrame={handleCaptureFrame}
@@ -1173,21 +1220,21 @@ export default function App() {
                 fieldTokens={tokens}
                 onLoadDemoPlay={handleLoadDemoPlay}
               />
-            </div>
+            </DraggablePopup>
           )}
 
-          {/* Collapsible Extras Panel inside Center/Left */}
+          {/* Movable / Draggable Extras Panel */}
           {isExtrasOpen && (
-            <div className="absolute top-3 left-3 z-30 w-80 max-h-[85vh] overflow-y-auto bg-[#0d130ff2] border border-[#3c4e42] rounded-xl p-3 shadow-2xl backdrop-blur scrollbar-thin">
-              <div className="flex items-center justify-between pb-1.5 border-b border-[#29362d]">
-                <span className="text-[10px] font-black text-white">⚙ RECURSOS AVANÇADOS</span>
-                <button
-                  onClick={() => setIsExtrasOpen(false)}
-                  className="text-gray-400 hover:text-white text-xs px-1"
-                >
-                  ✕
-                </button>
-              </div>
+            <DraggablePopup
+              id="tactical-extras-panel"
+              isOpen={isExtrasOpen}
+              onClose={() => setIsExtrasOpen(false)}
+              title="Recursos da Prancheta"
+              subtitle="Metadados, biblioteca, travas e alinhamentos"
+              icon="⚙️"
+              width="w-[min(380px,92vw)]"
+              defaultPosition={{ x: 25, y: 75 }}
+            >
               <ExtrasPanel
                 isOpen={isExtrasOpen}
                 onClose={() => setIsExtrasOpen(false)}
@@ -1231,7 +1278,7 @@ export default function App() {
                 selectedClub={selectedClub}
                 frameCount={currentPlay.frames.length}
               />
-            </div>
+            </DraggablePopup>
           )}
         </section>
 
@@ -1389,8 +1436,28 @@ export default function App() {
         onLoginSuccess={(user) => {
           setCurrentUser(user);
           setPublishAuthor(user.name);
-          setStatusMessage(`Conectado com sucesso como ${user.name}!`);
+          const isOwnerUser = authService.isOwner(user);
+          showToast(
+            isOwnerUser
+              ? `👑 Conectado como Administrador Master (${user.email})!`
+              : `Bem-vindo, ${user.name}! Conectado via Google.`,
+            'success'
+          );
         }}
+      />
+
+      {/* Administrator & Member Profile Modal */}
+      <AdminProfileModal
+        isOpen={isAdminProfileOpen}
+        onClose={() => setIsAdminProfileOpen(false)}
+        currentUser={currentUser}
+        onOpenAdminPanel={() => setIsAdminModalOpen(true)}
+        onLogout={() => {
+          authService.logout();
+          setCurrentUser(null);
+          showToast('Você desconectou da sua conta Google.', 'info');
+        }}
+        onGoToTactics={currentView === 'portal' ? () => setCurrentView('tactics') : undefined}
       />
 
       {/* Non-intrusive Toast Notification Banner */}

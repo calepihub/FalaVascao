@@ -195,7 +195,7 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
             <span className="text-lg mb-1 animate-pulse">🎬</span>
             <span className="text-[9px] font-black text-[#71e39a]">Editor em Pop-up Ativo</span>
             <span className="text-[7.5px] text-[#9bb5a4] mt-0.5 max-w-[200px]">
-              A janela de animação está aberta flutuando no campo. Arraste as peças e grave as etapas!
+              Janela móvel aberta no campo! Clique e arraste pela alça superior ⠿ para mover para qualquer lugar.
             </span>
             <button
               type="button"
