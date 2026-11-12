@@ -10,9 +10,12 @@ import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
 import { AppUser, SiteSettings, authService, OWNER_EMAIL } from './data/auth';
+import { databaseService, DbClub, DbPlayer, getClubColors } from './data/databaseService';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { AdminProfileModal } from './components/AdminProfileModal';
+import { PlayerDetailModal } from './components/PlayerDetailModal';
+import { RosterPlayerItem } from './components/RosterPanel';
 import { DraggablePopup } from './components/DraggablePopup';
 import {
   TacticalPlay,
@@ -49,15 +52,19 @@ export default function App() {
     }, 4500);
   }, []);
 
-  // State
-  const [squad, setSquad] = useState<SquadPlayer[]>(INITIAL_SQUAD);
+  // State (always backed by bd.xlsx without temporary overrides)
+  const [squad, setSquad] = useState<RosterPlayerItem[]>(INITIAL_SQUAD);
+  const [opponentClubs, setOpponentClubs] = useState<DbClub[]>([]);
+  const [selectedClubSquad, setSelectedClubSquad] = useState<DbPlayer[]>([]);
+  const [selectedPlayerForModal, setSelectedPlayerForModal] = useState<FieldTokenData | null>(null);
+  const [isPlayerModalOpen, setIsPlayerModalOpen] = useState(false);
   const [tokens, setTokens] = useState<FieldTokenData[]>([]);
   const [selectedClub, setSelectedClub] = useState<string>('');
   const [currentTool, setCurrentTool] = useState<DrawingTool>('move');
   const [drawingColor, setDrawingColor] = useState<string>('#e32636');
   const [lineWidth, setLineWidth] = useState<number>(5);
   const [statusMessage, setStatusMessage] = useState<string>(
-    'Prancheta pronta. Adicione jogadores ou selecione o adversário.'
+    'Prancheta pronta. Carregando dados do banco de dados oficial...'
   );
 
   // Community Mural publishing modal
@@ -114,7 +121,7 @@ export default function App() {
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const clubGradientStyle = getClubGradient(
-    selectedClub && OPPONENT_CLUBS[selectedClub] ? OPPONENT_CLUBS[selectedClub] : ['#39433d']
+    selectedClub ? getClubColors(selectedClub) : ['#39433d']
   );
 
   // 1. Initial Load & Setup: automatic boot with silent database restore
@@ -122,22 +129,53 @@ export default function App() {
     async function init() {
       // Load stored photos from IndexedDB
       await storage.loadPhotoCache();
-      setSquad([...INITIAL_SQUAD]);
+
+      // Load official database directly from bd.xlsx (always consulting the database without temporary overrides)
+      try {
+        await databaseService.init();
+        const vascoSquad = databaseService.getVascoSquad();
+        if (vascoSquad && vascoSquad.length > 0) {
+          setSquad(vascoSquad.map((p) => ({
+            ...p,
+            photo: p.photoUrl
+          })));
+        } else {
+          setSquad([...INITIAL_SQUAD]);
+        }
+        const oppClubs = databaseService.getOpponentClubs();
+        setOpponentClubs(oppClubs);
+      } catch (err) {
+        console.warn('Erro ao carregar banco de dados bd.xlsx:', err);
+        setSquad([...INITIAL_SQUAD]);
+      }
 
       // Automatically restore last lineup if available, or ready with ball
       const prev = await storage.loadLastLineup();
       if (prev && (prev.players?.length || prev.opponents?.length || prev.ball)) {
-        setSelectedClub(prev.opponentClub || '');
+        if (prev.opponentClub) {
+          setSelectedClub(prev.opponentClub);
+          setSelectedClubSquad(databaseService.getSquadByClub(prev.opponentClub));
+        }
         const restoredTokens: FieldTokenData[] = [];
 
         (prev.players || []).forEach((p) => {
-          const full = INITIAL_SQUAD.find((s) => s.name === p.name);
+          const dbP = databaseService.getPlayerByNameAndClub(p.name, 'CR Vasco da Gama');
           restoredTokens.push({
             id: p.id || `v_${p.name}_${Date.now()}`,
             kind: 'vasco',
             name: p.name,
-            role: p.role,
-            photo: storage.getPhoto(p.name, full?.photo || p.photo),
+            role: p.role || dbP?.role,
+            photo: storage.getPhoto(p.name, dbP?.photoUrl || p.photo),
+            club: 'CR Vasco da Gama',
+            playerId: dbP?.id,
+            rawPosition: dbP?.rawPosition,
+            birthDate: dbP?.birthDate,
+            age: dbP?.age,
+            nationality: dbP?.nationality,
+            contract: dbP?.contract,
+            marketValue: dbP?.marketValue,
+            profileUrl: dbP?.profileUrl,
+            comment: dbP?.comment,
             x: p.x,
             y: p.y,
             locked: p.locked
@@ -262,8 +300,25 @@ export default function App() {
     [pushHistory, queueAutoSave, tokens]
   );
 
-  // Add Vasco player to field
-  const handleAddPlayer = (player: SquadPlayer) => {
+  // Select opponent club and load squad directly from database bd.xlsx
+  const handleSelectClub = (clubName: string) => {
+    setSelectedClub(clubName);
+    if (clubName) {
+      const oppSquad = databaseService.getSquadByClub(clubName);
+      setSelectedClubSquad(oppSquad);
+      setStatusMessage(
+        oppSquad.length > 0
+          ? `Elenco do ${clubName} carregado com sucesso (${oppSquad.length} atletas da base).`
+          : `Adversário definido: ${clubName}.`
+      );
+    } else {
+      setSelectedClubSquad([]);
+    }
+    queueAutoSave();
+  };
+
+  // Add Vasco player to field (enriched with all bd.xlsx attributes)
+  const handleAddPlayer = (player: RosterPlayerItem) => {
     // Check if player is already on the field -> highlight instead of duplicating
     const existing = tokens.find((t) => t.kind === 'vasco' && t.name === player.name);
     if (existing) {
@@ -272,21 +327,68 @@ export default function App() {
       return;
     }
 
+    const extra = player as any;
     const newToken: FieldTokenData = {
       id: `v_${player.name.replace(/\s+/g, '_')}_${Date.now()}`,
       kind: 'vasco',
       name: player.name,
       role: player.role,
-      photo: storage.getPhoto(player.name, player.photo),
+      photo: storage.getPhoto(player.name, extra.photoUrl || player.photo),
+      club: 'CR Vasco da Gama',
+      playerId: extra.id,
+      rawPosition: extra.rawPosition,
+      birthDate: extra.birthDate,
+      age: extra.age,
+      nationality: extra.nationality,
+      contract: extra.contract,
+      marketValue: extra.marketValue,
+      profileUrl: extra.profileUrl,
+      comment: extra.comment,
       x: 0.25,
       y: 0.5
     };
 
     handleTokensChange([...tokens, newToken]);
-    setStatusMessage(`${player.name} adicionado ao campo.`);
+    setStatusMessage(`${player.name} (${player.role}) adicionado ao campo.`);
   };
 
-  // Add Opponent player to field
+  // Add Opponent player from bd.xlsx to field
+  const handleAddOpponentPlayer = (player: DbPlayer) => {
+    const existing = tokens.find(
+      (t) => t.kind === 'opp' && (t.name === player.name || (player.id && t.playerId === player.id))
+    );
+    if (existing) {
+      window.dispatchEvent(new CustomEvent('highlight-token', { detail: { id: existing.id } }));
+      setStatusMessage(`${player.name} (${player.club}) já está posicionado no campo.`);
+      return;
+    }
+
+    const newToken: FieldTokenData = {
+      id: `opp_${player.name.replace(/\s+/g, '_')}_${Date.now()}`,
+      kind: 'opp',
+      name: player.name,
+      role: player.role,
+      num: player.number || undefined,
+      photo: player.photoUrl,
+      club: player.club,
+      playerId: player.id,
+      rawPosition: player.rawPosition,
+      birthDate: player.birthDate,
+      age: player.age,
+      nationality: player.nationality,
+      contract: player.contract,
+      marketValue: player.marketValue,
+      profileUrl: player.profileUrl,
+      comment: player.comment,
+      x: 0.72,
+      y: 0.5
+    };
+
+    handleTokensChange([...tokens, newToken]);
+    setStatusMessage(`${player.name} (${player.club}) adicionado ao campo.`);
+  };
+
+  // Add Opponent player by quick number (1-20)
   const handleAddOpponent = (num: number) => {
     const existing = tokens.find((t) => t.kind === 'opp' && Number(t.num) === num);
     if (existing) {
@@ -299,12 +401,38 @@ export default function App() {
       id: `opp_${num}_${Date.now()}`,
       kind: 'opp',
       num,
+      club: selectedClub || 'Adversário',
       x: 0.72,
       y: 0.5
     };
 
     handleTokensChange([...tokens, newToken]);
     setStatusMessage(`Adversário #${num} adicionado ao campo.`);
+  };
+
+  // Player Detail Modal handlers
+  const handleOpenPlayerDetail = (token: FieldTokenData) => {
+    setSelectedPlayerForModal(token);
+    setIsPlayerModalOpen(true);
+  };
+
+  const handleToggleLockFromModal = (tokenId: string) => {
+    handleTokensChange(
+      tokens.map((t) => (t.id === tokenId ? { ...t, locked: !t.locked } : t))
+    );
+    setSelectedPlayerForModal((prev) => (prev?.id === tokenId ? { ...prev, locked: !prev.locked } : prev));
+  };
+
+  const handleRemoveTokenFromModal = (tokenId: string) => {
+    handleTokensChange(tokens.filter((t) => t.id !== tokenId));
+    setIsPlayerModalOpen(false);
+  };
+
+  const handleUpdateCommentFromModal = (tokenId: string, newComment: string) => {
+    handleTokensChange(
+      tokens.map((t) => (t.id === tokenId ? { ...t, comment: newComment } : t))
+    );
+    setSelectedPlayerForModal((prev) => (prev?.id === tokenId ? { ...prev, comment: newComment } : prev));
   };
 
   // Add or center ball
@@ -828,7 +956,11 @@ export default function App() {
   };
 
   const usedOpponentNumbers = new Set(
-    tokens.filter((t) => t.kind === 'opp').map((t) => Number(t.num))
+    tokens.filter((t) => t.kind === 'opp' && t.num).map((t) => Number(t.num))
+  );
+
+  const usedOpponentPlayerIds = new Set(
+    tokens.filter((t) => t.kind === 'opp' && t.playerId).map((t) => t.playerId!)
   );
 
   return (
@@ -1134,6 +1266,7 @@ export default function App() {
               opponentClubStyle={clubGradientStyle}
               customBallSvg={customBallSvg}
               isAnimating={isAnimating}
+              onOpenPlayerDetail={handleOpenPlayerDetail}
             />
           </div>
 
@@ -1287,15 +1420,13 @@ export default function App() {
           !isRightPanelCollapsed ? (
             <OpponentPanel
               selectedClub={selectedClub}
-              onSelectClub={(club) => {
-                setSelectedClub(club);
-                setStatusMessage(
-                  club ? `Adversário definido: ${club}. Peças atualizadas.` : 'Selecione o clube.'
-                );
-                queueAutoSave();
-              }}
+              onSelectClub={handleSelectClub}
+              opponentClubs={opponentClubs}
+              opponentSquad={selectedClubSquad}
+              onAddOpponentPlayer={handleAddOpponentPlayer}
               clubGradientStyle={clubGradientStyle}
               usedOpponentNumbers={usedOpponentNumbers}
+              usedOpponentPlayerIds={usedOpponentPlayerIds}
               onAddOpponent={handleAddOpponent}
               currentTool={currentTool}
               onSelectTool={handleSelectTool}
@@ -1458,6 +1589,16 @@ export default function App() {
           showToast('Você desconectou da sua conta Google.', 'info');
         }}
         onGoToTactics={currentView === 'portal' ? () => setCurrentView('tactics') : undefined}
+      />
+
+      {/* Player Detail & Tactical Report Modal (bd.xlsx) */}
+      <PlayerDetailModal
+        player={selectedPlayerForModal}
+        isOpen={isPlayerModalOpen}
+        onClose={() => setIsPlayerModalOpen(false)}
+        onToggleLock={handleToggleLockFromModal}
+        onRemoveToken={handleRemoveTokenFromModal}
+        onUpdateComment={handleUpdateCommentFromModal}
       />
 
       {/* Non-intrusive Toast Notification Banner */}

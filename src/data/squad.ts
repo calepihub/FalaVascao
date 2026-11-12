@@ -45,8 +45,8 @@ export const POSITION_GROUPS: [string, string[]][] = [
   ['ZAGUEIROS', ['ZAG', 'ZAG D', 'ZAG E']],
   ['LATERAIS / ALAS', ['LD', 'LE', 'ALA D', 'ALA E']],
   ['VOLANTES', ['VOL']],
-  ['MEIAS / PONTAS', ['MC', 'MEI', 'MD', 'ME', 'PD', 'PE']],
-  ['ATACANTES', ['ATA']]
+  ['MEIAS', ['MC', 'MEI', 'MD', 'ME']],
+  ['ATACANTES', ['ATA', 'CA', 'SA', 'PD', 'PE']]
 ];
 
 export const OPPONENT_CLUBS: Record<string, string[]> = {

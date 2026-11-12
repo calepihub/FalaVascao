@@ -2,14 +2,13 @@ import React, { useRef } from 'react';
 import { POSITION_GROUPS, SquadPlayer } from '../data/squad';
 import { getInitials, normName } from '../tactics/tacticsLogic';
 import { storage } from '../data/storage';
+import { DbPlayer } from '../data/databaseService';
+
+export type RosterPlayerItem = SquadPlayer & Partial<DbPlayer>;
 
 interface RosterPanelProps {
-  squad: SquadPlayer[];
-  onAddPlayer: (player: SquadPlayer, defaultX?: number, defaultY?: number) => void;
-  onTogglePlayEditor: () => void;
-  onToggleExtras: () => void;
-  isPlayEditorOpen: boolean;
-  isExtrasOpen: boolean;
+  squad: RosterPlayerItem[];
+  onAddPlayer: (player: RosterPlayerItem, defaultX?: number, defaultY?: number) => void;
   onStatusMessage: (msg: string) => void;
   onToggleCollapse?: () => void;
 }
@@ -17,10 +16,6 @@ interface RosterPanelProps {
 export const RosterPanel: React.FC<RosterPanelProps> = ({
   squad,
   onAddPlayer,
-  onTogglePlayEditor,
-  onToggleExtras,
-  isPlayEditorOpen,
-  isExtrasOpen,
   onStatusMessage,
   onToggleCollapse
 }) => {
@@ -69,9 +64,9 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
       <div className="flex items-center justify-between pb-1 border-b border-[#222c25] shrink-0">
         <div>
           <h2 className="text-[10px] font-black tracking-wider text-[#d2dbd5] uppercase leading-none">
-            ELENCO E FUNÇÕES
+            ELENCO DO VASCO
           </h2>
-          <span className="text-[8px] text-[#78887e]">Vasco da Gama • 2026</span>
+          <span className="text-[8px] text-[#78887e]">CR Vasco da Gama • 2026 ({squad.length})</span>
         </div>
         <div className="flex items-center gap-1">
           <input
@@ -104,7 +99,7 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
         </div>
       </div>
 
-      {/* Roster Section: Exactly 5 photos per row, no overlap, wraps at 6th player */}
+      {/* Roster Section: Exactly 5 photos per row, compact padding, all position groups visible */}
       <div id="roster" className="flex flex-col gap-1.5 shrink-0">
         {POSITION_GROUPS.map(([groupName, roles]) => {
           const players = squad.filter((p) => roles.includes(p.role));
@@ -121,20 +116,20 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
                 <span className="text-[7.5px] font-bold text-[#6d7e73]">{players.length}</span>
               </div>
 
-              {/* Grid of exactly 5 circular player avatars per row, 36px, wrapping seamlessly */}
+              {/* Grid of exactly 5 circular player avatars per row, 35px, wrapping seamlessly */}
               <div className="grid grid-cols-5 gap-1.5 pt-0.5">
                 {players.map((player) => {
-                  const photoUrl = storage.getPhoto(player.name, player.photo);
+                  const photoUrl = storage.getPhoto(player.name, player.photoUrl || player.photo);
                   const initials = getInitials(player.name);
 
                   return (
                     <button
-                      key={player.name}
+                      key={player.id || player.name}
                       type="button"
                       onClick={() => onAddPlayer(player)}
-                      title={`${player.name} (${player.role})`}
+                      title={`${player.name} (${player.role} • ${player.rawPosition || ''}) - Clique para colocar em campo`}
                       aria-label={`${player.name} - ${player.role}`}
-                      className="group relative w-[36px] h-[36px] rounded-full p-0 border-2 border-[#d2dad5] bg-[#0d100e] hover:border-[#e32636] hover:scale-105 active:scale-95 transition shadow cursor-pointer flex items-center justify-center"
+                      className="group relative w-[35px] h-[35px] rounded-full p-0 border-2 border-[#d2dad5] bg-[#0d100e] hover:border-[#e32636] hover:scale-105 active:scale-95 transition shadow cursor-pointer flex items-center justify-center"
                     >
                       <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center pointer-events-none">
                         {photoUrl ? (
@@ -157,78 +152,6 @@ export const RosterPanel: React.FC<RosterPanelProps> = ({
             </div>
           );
         })}
-      </div>
-
-      {/* Buttons directly underneath the roster */}
-      <div className="mt-1.5 pt-1 border-t border-[#222c25] space-y-1 shrink-0">
-        <button
-          type="button"
-          onClick={onTogglePlayEditor}
-          className={`w-full h-[32px] text-[10px] font-black tracking-wider rounded border transition flex items-center justify-center gap-1.5 cursor-pointer ${
-            isPlayEditorOpen
-              ? 'bg-[#8e1724] border-[#e35260] text-white shadow-md'
-              : 'bg-[#172019] hover:bg-[#253027] border-[#3c4b40] text-white'
-          }`}
-        >
-          <span>🎬</span>
-          <span>{isPlayEditorOpen ? 'FECHAR EDITOR DE JOGADAS' : 'CRIAR / EDITAR JOGADAS'}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onToggleExtras}
-          className={`w-full h-[28px] text-[8.5px] font-black rounded border transition flex items-center justify-center gap-1 cursor-pointer ${
-            isExtrasOpen
-              ? 'bg-[#7d1520] border-[#ec6571] text-white'
-              : 'bg-[#151c17] hover:bg-[#202922] border-[#354339] text-[#cdd8d1]'
-          }`}
-        >
-          <span>⚙</span>
-          <span>{isExtrasOpen ? 'FECHAR RECURSOS' : 'RECURSOS DA PRANCHETA'}</span>
-        </button>
-      </div>
-
-      {/* Area below buttons */}
-      <div id="playPanelHost" className="flex-1 min-h-0 overflow-y-auto mt-1 pr-0.5 scrollbar-thin">
-        {isPlayEditorOpen ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-2.5 text-[#64756b] border border-[#2d6b41] bg-[#102216] rounded-md min-h-[80px]">
-            <span className="text-lg mb-1 animate-pulse">🎬</span>
-            <span className="text-[9px] font-black text-[#71e39a]">Editor em Pop-up Ativo</span>
-            <span className="text-[7.5px] text-[#9bb5a4] mt-0.5 max-w-[200px]">
-              Janela móvel aberta no campo! Clique e arraste pela alça superior ⠿ para mover para qualquer lugar.
-            </span>
-            <button
-              type="button"
-              onClick={onTogglePlayEditor}
-              className="mt-2 text-[8px] px-2 py-0.5 bg-[#8e1724] hover:bg-[#b01e30] text-white rounded font-bold cursor-pointer"
-            >
-              Fechar Pop-up
-            </button>
-          </div>
-        ) : isExtrasOpen ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-2.5 text-[#64756b] border border-[#8e2430] bg-[#1e1315] rounded-md min-h-[80px]">
-            <span className="text-lg mb-1">⚙</span>
-            <span className="text-[9px] font-black text-[#ff808e]">Recursos em Pop-up Ativo</span>
-            <span className="text-[7.5px] text-[#caa7ac] mt-0.5 max-w-[200px]">
-              A janela de recursos e configurações está aberta flutuando no campo.
-            </span>
-            <button
-              type="button"
-              onClick={onToggleExtras}
-              className="mt-2 text-[8px] px-2 py-0.5 bg-[#421d23] hover:bg-[#5e252d] text-[#ff99a4] rounded font-bold cursor-pointer"
-            >
-              Fechar Pop-up
-            </button>
-          </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-3 text-[#64756b] border border-dashed border-[#1f2922] rounded-md min-h-[80px]">
-            <span className="text-xl mb-1">🎬</span>
-            <span className="text-[9px] font-bold text-[#8ba093]">Área de Jogadas</span>
-            <span className="text-[7.5px] text-[#55665c] mt-0.5 max-w-[200px]">
-              Clique em <b>CRIAR / EDITAR JOGADAS</b> acima para abrir a janela pop-up de etapas e animação.
-            </span>
-          </div>
-        )}
       </div>
     </aside>
   );

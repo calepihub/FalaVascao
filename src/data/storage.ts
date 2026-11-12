@@ -7,6 +7,16 @@ export interface FieldTokenData {
   role?: string;
   num?: string | number;
   photo?: string;
+  club?: string;
+  playerId?: string;
+  rawPosition?: string;
+  birthDate?: string;
+  age?: string;
+  nationality?: string;
+  contract?: string;
+  marketValue?: string;
+  profileUrl?: string;
+  comment?: string;
   x: number; // 0 to 1 relative to pitch
   y: number; // 0 to 1 relative to pitch
   locked?: boolean;

@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import * as XLSX from 'xlsx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -290,6 +291,139 @@ async function fetchYouTubeFeed() {
 app.get('/api/youtube/videos', async (_req: Request, res: Response) => {
   const data = await fetchYouTubeFeed();
   res.json(data);
+});
+
+// Cache for bd.xlsx parsed data
+let bdCache: { data: any; mtime: number } | null = null;
+
+app.get('/api/bd', (_req: Request, res: Response) => {
+  try {
+    const excelPath = path.resolve(__dirname, 'public', 'bd.xlsx');
+    if (!fs.existsSync(excelPath)) {
+      return res.status(404).json({ error: 'bd.xlsx não encontrado na pasta public' });
+    }
+
+    const stat = fs.statSync(excelPath);
+    if (bdCache && bdCache.mtime === stat.mtimeMs) {
+      return res.json(bdCache.data);
+    }
+
+    const buf = fs.readFileSync(excelPath);
+    const workbook = XLSX.read(buf, { type: 'buffer' });
+
+    let clubs: any[] = [];
+    if (workbook.Sheets['Clubes']) {
+      clubs = XLSX.utils.sheet_to_json(workbook.Sheets['Clubes']).map((c: any) => ({
+        id: String(c.clube_id || ''),
+        name: String(c.clube || '').trim(),
+        country: String(c.pais || 'Brasil'),
+        competition: String(c.competicao || 'Brasileirao Serie A'),
+        season: String(c.temporada || '2026'),
+        sourceUrl: String(c.fonte_url || ''),
+        collectedAt: String(c.coletado_em || '')
+      }));
+    }
+
+    let players: any[] = [];
+    if (workbook.Sheets['Elencos']) {
+      players = XLSX.utils.sheet_to_json(workbook.Sheets['Elencos']).map((r: any, idx: number) => {
+        const clubName = String(r.clube || '').trim();
+        const playerName = String(r.jogador || '').trim();
+        const rawPos = String(r.posicao || 'Meia Central');
+
+        const mapPos = (p: string) => {
+          const l = p.toLowerCase();
+          if (l.includes('goleiro')) return 'GOL';
+          if (l.includes('zagueiro')) return 'ZAG';
+          if (l.includes('lateral dir')) return 'LD';
+          if (l.includes('lateral esq')) return 'LE';
+          if (l.includes('volante')) return 'VOL';
+          if (l.includes('meia central')) return 'MC';
+          if (l.includes('meia ofensivo')) return 'MEI';
+          if (l.includes('meia dir')) return 'MD';
+          if (l.includes('meia esq')) return 'ME';
+          if (l.includes('ponta-dir') || l.includes('ponta dir')) return 'PD';
+          if (l.includes('ponta-esq') || l.includes('ponta esq')) return 'PE';
+          if (l.includes('centroavante')) return 'CA';
+          if (l.includes('seg. atacante')) return 'SA';
+          if (l.includes('atacante')) return 'ATA';
+          return 'MC';
+        };
+
+        const role = mapPos(rawPos);
+        const idade = String(r.idade || '');
+        const contract = String(r.contrato || '');
+        const marketVal = String(r.valor_mercado || '');
+
+        let roleAnalysis = '';
+        switch (role) {
+          case 'GOL':
+            roleAnalysis = 'Goleiro de boa envergadura e tempo de reação refinado. Comando de área seguro e consistência em bolas aéreas.';
+            break;
+          case 'ZAG':
+            roleAnalysis = 'Zagueiro de imposição física e tempo de combate apurado. Firme nos desarmes pelo chão e cobertura nas costas dos laterais.';
+            break;
+          case 'LD':
+            roleAnalysis = 'Lateral dinâmico no corredor direito. Oferece amplitude no ataque com cruzamentos e recomposição rápida na fase defensiva.';
+            break;
+          case 'LE':
+            roleAnalysis = 'Lateral equilibrado pela ala esquerda. Apoia a construção ofensiva com precisão de passe e mantém a linha de 4 compacta.';
+            break;
+          case 'VOL':
+            roleAnalysis = 'Volante de sustentação no meio-campo. Forte na interceptação de linhas de passe e na transição rápida de bola da defesa ao ataque.';
+            break;
+          case 'MC':
+            roleAnalysis = 'Meio-campista organizador que dita o ritmo da equipe. Visão de jogo periférica e distribuição vertical qualificada.';
+            break;
+          case 'MEI':
+            roleAnalysis = 'Articulador criativo entre as linhas adversárias. Dribles curtos objetivos e presença perigosa nas imediações da grande área.';
+            break;
+          case 'PD':
+          case 'PE':
+            roleAnalysis = 'Ponta agudo de velocidade e drible vertical. Abre o campo para o um-contra-um e ataca espaços em diagonal para finalizar.';
+            break;
+          case 'CA':
+            roleAnalysis = 'Centroavante de referência e faro de gol. Excelente proteção de pivô para aproximação dos meias e poder de finalização na área.';
+            break;
+          default:
+            roleAnalysis = 'Atacante de movimentação constante. Flutua na última linha para abrir defesas adversárias e buscar o gol com agressividade.';
+            break;
+        }
+
+        const market = marketVal && marketVal !== '-' ? `Avaliação de mercado em ${marketVal}.` : '';
+        const ct = contract && contract !== '-' ? `Contrato ativo até ${contract}.` : '';
+        const comment = `${roleAnalysis} Integrado ao elenco do ${clubName} na temporada 2026. ${market} ${ct}`.trim();
+
+        return {
+          id: String(r.jogador_id || `p_${idx}`),
+          name: playerName,
+          clubId: String(r.clube_id || ''),
+          club: clubName,
+          number: String(r.camisa || ''),
+          role,
+          rawPosition: rawPos,
+          birthDate: String(r.data_nascimento || ''),
+          age: idade,
+          nationality: String(r.nacionalidade || 'Brasil'),
+          contract,
+          marketValue: marketVal,
+          profileUrl: String(r.perfil_url || ''),
+          photoUrl: String(r.foto_url || ''),
+          season: String(r.temporada || '2026'),
+          competition: String(r.competicao || 'Brasileirão Série A'),
+          active: String(r.ativo || '').toUpperCase() === 'SIM',
+          comment
+        };
+      });
+    }
+
+    const result = { clubs, players };
+    bdCache = { data: result, mtime: stat.mtimeMs };
+    res.json(result);
+  } catch (err) {
+    console.error('Erro na rota /api/bd:', err);
+    res.status(500).json({ error: 'Erro ao processar bd.xlsx' });
+  }
 });
 
 // 2. Lineup

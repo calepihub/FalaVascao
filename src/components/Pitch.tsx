@@ -20,6 +20,7 @@ interface PitchProps {
   opponentClubStyle?: string;
   customBallSvg?: string;
   isAnimating?: boolean;
+  onOpenPlayerDetail?: (player: FieldTokenData) => void;
 }
 
 interface DragState {
@@ -49,7 +50,8 @@ export const Pitch: React.FC<PitchProps> = ({
   onStatusMessage,
   opponentClubStyle = '#e32636',
   customBallSvg,
-  isAnimating = false
+  isAnimating = false,
+  onOpenPlayerDetail
 }) => {
   const pitchRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -152,11 +154,15 @@ export const Pitch: React.FC<PitchProps> = ({
       onSelectToken(token.id, multi);
 
       if (token.name) {
-        onStatusMessage(`Selecionado: ${token.name} (${token.role || 'Vasco'})`);
+        onStatusMessage(`Selecionado: ${token.name} (${token.role || token.club || 'Vasco'})`);
       } else if (token.kind === 'opp') {
         onStatusMessage(`Selecionado: Adversário #${token.num}`);
       } else if (token.kind === 'ball') {
         onStatusMessage('Bola de futebol selecionada.');
+      }
+
+      if (!multi && (token.kind === 'vasco' || token.kind === 'opp')) {
+        onOpenPlayerDetail?.(token);
       }
       return;
     }
@@ -313,6 +319,7 @@ export const Pitch: React.FC<PitchProps> = ({
             }
 
             if (token.kind === 'opp') {
+              const oppInitials = token.name ? getInitials(token.name) : `#${token.num || '?'}`;
               return (
                 <div
                   key={token.id}
@@ -336,9 +343,27 @@ export const Pitch: React.FC<PitchProps> = ({
                   onPointerUp={handlePointerUpToken}
                   onPointerCancel={handlePointerCancelToken}
                   onDoubleClick={(e) => handleTokenDblClick(token, e)}
-                  title={`Adversário #${token.num}`}
+                  title={token.name ? `${token.name} (${token.role || 'Adversário'}) - Clique para detalhes` : `Adversário #${token.num}`}
                 >
-                  {token.num}
+                  {token.photo ? (
+                    <img
+                      src={token.photo}
+                      alt={token.name || 'Adversário'}
+                      className="w-full h-full object-cover object-top rounded-full pointer-events-none select-none"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span>{token.num || oppInitials}</span>
+                  )}
+
+                  {token.name && (
+                    <span className="player-name pointer-events-none absolute left-1/2 -bottom-4 -translate-x-1/2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#101412e8] text-white border border-[#4a584f] whitespace-nowrap shadow-md max-w-[85px] truncate">
+                      {token.name}
+                    </span>
+                  )}
+
                   {token.locked && (
                     <span className="absolute -top-1 -right-1 text-[8px] bg-yellow-500 text-black px-1 rounded-full">
                       🔒
