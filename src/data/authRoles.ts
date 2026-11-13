@@ -14,10 +14,23 @@ export interface AppUser {
   emailVerified?: boolean;
   name: string;
   avatar: string;
+  isOnline?: boolean;
+  lastSeenAt?: string;
   role: UserRole;
   status: UserStatus;
   permissions: UserPermissions;
   createdAt: string;
+}
+
+export interface AdminMessage {
+  id: string;
+  recipientUid: string;
+  senderUid: string;
+  senderName: string;
+  message: string;
+  acknowledged: boolean;
+  createdAt: string;
+  acknowledgedAt?: string;
 }
 
 export interface SiteSettings {
@@ -130,4 +143,72 @@ export function canAccessTacticsBoard(
     return { allowed: false, reason: 'permission_denied' };
   }
   return { allowed: true };
+}
+
+export const ONLINE_PRESENCE_TTL_MS = 120_000;
+
+export function isUserCurrentlyOnline(
+  user?: Pick<AppUser, 'isOnline' | 'lastSeenAt'> | null,
+  referenceNowMs = Date.now(),
+  ttlMs = ONLINE_PRESENCE_TTL_MS
+): boolean {
+  if (!user || user.isOnline !== true || !user.lastSeenAt) return false;
+  const lastSeenMs = Date.parse(user.lastSeenAt);
+  if (!Number.isFinite(lastSeenMs)) return false;
+  // Server-generated lastSeenAt ahead of or equal to referenceNowMs means active heartbeat/clock skew
+  if (lastSeenMs >= referenceNowMs) return true;
+  return referenceNowMs - lastSeenMs <= ttlMs;
+}
+
+export function computeServerPresenceNowMs(
+  users: Array<Pick<AppUser, 'id' | 'isOnline' | 'lastSeenAt'>>,
+  currentUserId?: string | null,
+  serverAnchor?: { serverMs: number; observedLocalMs: number } | null,
+  localNowMs = Date.now()
+): number {
+  const me = currentUserId ? users.find((u) => u.id === currentUserId) : undefined;
+  const myLastSeenMs = me?.lastSeenAt ? Date.parse(me.lastSeenAt) : NaN;
+
+  if (serverAnchor && Number.isFinite(serverAnchor.serverMs)) {
+    const elapsed = Math.max(0, localNowMs - serverAnchor.observedLocalMs);
+    const anchored = serverAnchor.serverMs + elapsed;
+    if (Number.isFinite(myLastSeenMs) && myLastSeenMs > anchored) {
+      return myLastSeenMs;
+    }
+    return anchored;
+  }
+
+  if (Number.isFinite(myLastSeenMs)) {
+    return myLastSeenMs;
+  }
+
+  // Fallback to newest online server heartbeat if current user's doc has no lastSeenAt yet
+  let newestOnlineMs = NaN;
+  for (const u of users) {
+    if (u.isOnline === true && u.lastSeenAt) {
+      const ms = Date.parse(u.lastSeenAt);
+      if (Number.isFinite(ms) && (!Number.isFinite(newestOnlineMs) || ms > newestOnlineMs)) {
+        newestOnlineMs = ms;
+      }
+    }
+  }
+  return Number.isFinite(newestOnlineMs) ? newestOnlineMs : localNowMs;
+}
+
+export function formatLastSeenLabel(lastSeenAt?: string, nowMs = Date.now()): string {
+  if (!lastSeenAt) return 'Sem registro';
+  const lastSeenMs = Date.parse(lastSeenAt);
+  if (!Number.isFinite(lastSeenMs)) return 'Sem registro';
+  const diffSec = Math.max(0, Math.floor((nowMs - lastSeenMs) / 1000));
+  if (diffSec < 60) return 'Há poucos segundos';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Há ${diffMin} min`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `Há ${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `Há ${diffDays}d`;
+}
+
+export function sanitizeAdminMessageText(raw: string): string {
+  return (raw || '').trim().slice(0, 1000);
 }

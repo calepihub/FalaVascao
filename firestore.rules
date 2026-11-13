@@ -56,16 +56,30 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'name', 'role', 'status', 'permissions', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'name', 'avatar', 'role', 'status', 'permissions', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'name', 'avatar', 'isOnline', 'lastSeenAt', 'role', 'status', 'permissions', 'createdAt', 'updatedAt']) &&
         isValidId(data.uid) &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
         (!('avatar' in data) || (data.avatar is string && data.avatar.size() <= 500)) &&
+        (!('isOnline' in data) || data.isOnline is bool) &&
+        (!('lastSeenAt' in data) || data.lastSeenAt is timestamp) &&
         data.role in ['owner', 'admin', 'moderator', 'vip', 'member'] &&
         data.status in ['active', 'pending', 'blocked'] &&
         isValidPermissions(data.permissions) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
+    }
+
+    function isValidAdminMessage(data) {
+      return data.keys().hasAll(['recipientUid', 'senderUid', 'senderName', 'message', 'acknowledged', 'createdAt']) &&
+        data.keys().hasOnly(['recipientUid', 'senderUid', 'senderName', 'message', 'acknowledged', 'createdAt', 'acknowledgedAt']) &&
+        isValidId(data.recipientUid) &&
+        isValidId(data.senderUid) &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+        data.message is string && data.message.size() >= 1 && data.message.size() <= 1000 &&
+        data.acknowledged is bool &&
+        data.createdAt is timestamp &&
+        (!('acknowledgedAt' in data) || data.acknowledgedAt is timestamp);
     }
 
     function isValidSiteSettings(data) {
@@ -182,10 +196,11 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
-          // Action A: Self profile sync (name/avatar/updatedAt only — role/status/permissions immutable)
+          // Action A: Self profile & presence sync (name/avatar/isOnline/lastSeenAt/updatedAt only — role/status/permissions immutable)
           (
             request.auth.uid == userId &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'isOnline', 'lastSeenAt', 'updatedAt']) &&
+            (!('lastSeenAt' in incoming()) || !incoming().diff(existing()).affectedKeys().hasAny(['lastSeenAt']) || incoming().lastSeenAt == request.time)
           ) ||
           // Action B: Owner/Admin moderating another user's role/status/permissions (cannot demote owner)
           (
@@ -198,6 +213,35 @@ service cloud.firestore {
       allow delete: if isAdmin() &&
         isValidId(userId) &&
         existing().email.lower() != 'tazmaniacrvg@gmail.com';
+
+      // Subcollection: Admin direct messages for this user
+      match /messages/{messageId} {
+        allow get: if isVerified() && isValidId(userId) && isValidId(messageId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isVerified() && (resource.data.recipientUid == request.auth.uid || isAdmin());
+        allow create: if isAdmin() &&
+          isValidId(userId) &&
+          isValidId(messageId) &&
+          isValidAdminMessage(incoming()) &&
+          incoming().recipientUid == userId &&
+          incoming().senderUid == request.auth.uid &&
+          incoming().acknowledged == false &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(messageId) &&
+          request.auth.uid == userId &&
+          isValidAdminMessage(incoming()) &&
+          incoming().recipientUid == existing().recipientUid &&
+          incoming().senderUid == existing().senderUid &&
+          incoming().senderName == existing().senderName &&
+          incoming().message == existing().message &&
+          incoming().createdAt == existing().createdAt &&
+          existing().acknowledged == false &&
+          incoming().acknowledged == true &&
+          incoming().acknowledgedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['acknowledged', 'acknowledgedAt']);
+        allow delete: if isAdmin() && isValidId(userId) && isValidId(messageId);
+      }
 
       // Subcollection: Private user tactical saves (Master Gate checking parent ownership)
       match /tactical_data/{docId} {

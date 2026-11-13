@@ -4,11 +4,16 @@ import {
   AppUser,
   buildDefaultPermissionsForRole,
   canAccessTacticsBoard,
+  computeServerPresenceNowMs,
+  formatLastSeenLabel,
   isAdminOrOwnerUser,
   isOwnerUser,
+  isUserCurrentlyOnline,
   isVerifiedOwnerEmail,
+  ONLINE_PRESENCE_TTL_MS,
   OWNER_EMAIL,
-  resolveInitialRoleForGoogleEmail
+  resolveInitialRoleForGoogleEmail,
+  sanitizeAdminMessageText
 } from './authRoles';
 
 test('recognizes verified tazmaniacrvg@gmail.com as Owner and Super Admin', () => {
@@ -145,4 +150,74 @@ test('blocks Prancheta access unless user is logged in with a verified Google ac
     createdAt: new Date().toISOString()
   };
   assert.deepEqual(canAccessTacticsBoard(owner, false), { allowed: true });
+});
+
+test('computes live online presence with TTL expiry and sanitizes admin messages', () => {
+  const now = 1_700_000_000_000;
+  const freshOnline = {
+    isOnline: true,
+    lastSeenAt: new Date(now - 30_000).toISOString()
+  };
+  const staleOnline = {
+    isOnline: true,
+    lastSeenAt: new Date(now - ONLINE_PRESENCE_TTL_MS - 5_000).toISOString()
+  };
+  const explicitOffline = {
+    isOnline: false,
+    lastSeenAt: new Date(now - 1_000).toISOString()
+  };
+
+  assert.equal(isUserCurrentlyOnline(freshOnline, now), true);
+  assert.equal(isUserCurrentlyOnline(staleOnline, now), false);
+  assert.equal(isUserCurrentlyOnline(explicitOffline, now), false);
+  assert.equal(isUserCurrentlyOnline(null, now), false);
+
+  assert.equal(formatLastSeenLabel(new Date(now - 10_000).toISOString(), now), 'Há poucos segundos');
+  assert.equal(formatLastSeenLabel(new Date(now - 300_000).toISOString(), now), 'Há 5 min');
+  assert.equal(formatLastSeenLabel(undefined, now), 'Sem registro');
+
+  assert.equal(sanitizeAdminMessageText('   Olá torcedor!   '), 'Olá torcedor!');
+  assert.equal(sanitizeAdminMessageText('a'.repeat(1500)).length, 1000);
+});
+
+test('keeps active members online accurately even with severe local clock skew relative to Firestore serverTimestamp', () => {
+  const realServerTime = Date.parse('2025-05-15T12:00:00.000Z');
+  const skewedLocalClock = Date.parse('2026-11-13T16:00:00.000Z');
+
+  const users = [
+    {
+      id: 'admin_uid',
+      isOnline: true,
+      lastSeenAt: new Date(realServerTime).toISOString()
+    },
+    {
+      id: 'member_online_uid',
+      isOnline: true,
+      lastSeenAt: new Date(realServerTime - 25_000).toISOString()
+    },
+    {
+      id: 'member_stale_uid',
+      isOnline: true,
+      lastSeenAt: new Date(realServerTime - ONLINE_PRESENCE_TTL_MS - 10_000).toISOString()
+    }
+  ];
+
+  // Without anchor, skewed local clock would falsely fail; with server anchor it stays accurate
+  const refNowMs = computeServerPresenceNowMs(
+    users,
+    'admin_uid',
+    { serverMs: realServerTime, observedLocalMs: skewedLocalClock - 5_000 },
+    skewedLocalClock
+  );
+
+  assert.equal(isUserCurrentlyOnline(users[1], refNowMs), true);
+  assert.equal(isUserCurrentlyOnline(users[2], refNowMs), false);
+  // Newer server heartbeat ahead of admin's anchor is also treated as online
+  assert.equal(
+    isUserCurrentlyOnline(
+      { isOnline: true, lastSeenAt: new Date(realServerTime + 90_000).toISOString() },
+      refNowMs
+    ),
+    true
+  );
 });

@@ -28,6 +28,15 @@
           "description": "Profile photo URL.",
           "maxLength": 500
         },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Whether the member currently has an active session."
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last server heartbeat timestamp for presence calculation."
+        },
         "role": {
           "type": "string",
           "enum": ["owner", "admin", "moderator", "vip", "member"],
@@ -54,6 +63,29 @@
         }
       },
       "required": ["uid", "email", "name", "role", "status", "permissions", "createdAt", "updatedAt"]
+    },
+    "AdminMessage": {
+      "title": "Admin Direct Message",
+      "description": "Direct notification sent by an administrator to a specific member, displayed upon arrival or next login until acknowledged.",
+      "type": "object",
+      "properties": {
+        "recipientUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "acknowledged": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "acknowledgedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientUid", "senderUid", "senderName", "message", "acknowledged", "createdAt"]
     },
     "SiteSettings": {
       "title": "Site Settings",
@@ -124,7 +156,11 @@
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
-      "description": "User profiles, roles, and permissions keyed by Firebase Auth UID."
+      "description": "User profiles, online presence, roles, and permissions keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/AdminMessage" },
+      "description": "Direct messages from admin to a member, shown in a modal until acknowledged with Ok."
     },
     "/users/{userId}/tactical_data/{docId}": {
       "schema": { "$ref": "#/entities/TacticalBoardDoc" },

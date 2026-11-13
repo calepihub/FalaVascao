@@ -9,11 +9,12 @@ import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
-import { AppUser, SiteSettings, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
+import { AppUser, SiteSettings, AdminMessage, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
 import { FIREBASE_PROJECT_ID } from './data/firebase';
 import { databaseService, DbClub, DbPlayer, getClubColors } from './data/databaseService';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { AdminProfileModal } from './components/AdminProfileModal';
+import { AdminMessageModal } from './components/AdminMessageModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { RosterPlayerItem } from './components/RosterPanel';
 import { DraggablePopup } from './components/DraggablePopup';
@@ -38,6 +39,7 @@ export default function App() {
   const [isCapturingMuralPhoto, setIsCapturingMuralPhoto] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
   const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
+  const [pendingAdminMessages, setPendingAdminMessages] = useState<AdminMessage[]>([]);
   const pendingOpenTacticsRef = useRef(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'warn' | 'error' | 'info' = 'info') => {
@@ -329,6 +331,68 @@ export default function App() {
       unsubscribeSettings();
     };
   }, [showToast]);
+
+  // 1b. Live Presence Heartbeat + Pending Direct Admin Messages for signed-in member
+  useEffect(() => {
+    const uid = currentUser?.id;
+    if (!uid) {
+      setPendingAdminMessages([]);
+      return;
+    }
+
+    const unsubscribeMessages = authService.subscribePendingAdminMessages(
+      uid,
+      (msgs) => {
+        setPendingAdminMessages(msgs);
+      },
+      () => {
+        showToast('Não foi possível sincronizar notificações da administração.', 'warn');
+      }
+    );
+
+    void authService.updateUserPresence(true);
+
+    const heartbeatInterval = setInterval(() => {
+      void authService.updateUserPresence(true);
+    }, 20_000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void authService.updateUserPresence(true);
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void authService.updateUserPresence(true);
+    };
+
+    const handlePageExit = () => {
+      void authService.updateUserPresence(false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('pagehide', handlePageExit);
+    window.addEventListener('beforeunload', handlePageExit);
+
+    return () => {
+      unsubscribeMessages();
+      clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('pagehide', handlePageExit);
+      window.removeEventListener('beforeunload', handlePageExit);
+    };
+  }, [currentUser?.id, showToast]);
+
+  const handleAcknowledgeAdminMessage = useCallback(
+    async (messageId: string) => {
+      if (!currentUser?.id) return;
+      await authService.acknowledgeAdminMessage(currentUser.id, messageId);
+      setPendingAdminMessages((prev) => prev.filter((m) => m.id !== messageId));
+    },
+    [currentUser?.id]
+  );
 
   // Save history state
   const pushHistory = useCallback(
@@ -1811,6 +1875,13 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Direct Admin Message Modal (only single "Ok" button closes it) */}
+      <AdminMessageModal
+        message={pendingAdminMessages[0] || null}
+        pendingCount={pendingAdminMessages.length}
+        onAcknowledge={handleAcknowledgeAdminMessage}
+      />
 
       {/* Non-intrusive Toast Notification Banner */}
       {toast && (

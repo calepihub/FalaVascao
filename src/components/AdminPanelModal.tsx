@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { AppUser, UserRole, UserStatus, SiteSettings, authService, OWNER_EMAIL } from '../data/auth';
+import {
+  AppUser,
+  UserRole,
+  UserStatus,
+  SiteSettings,
+  authService,
+  OWNER_EMAIL,
+  isUserCurrentlyOnline,
+  computeServerPresenceNowMs,
+  formatLastSeenLabel
+} from '../data/auth';
 import { CommunityLineup, storage } from '../data/storage';
 import { FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID } from '../data/firebase';
 
@@ -20,6 +30,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [presenceFilter, setPresenceFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [serverAnchor, setServerAnchor] = useState<{ serverMs: number; observedLocalMs: number } | null>(null);
   const [settings, setSettings] = useState<SiteSettings>({
     muralVisible: true,
     muralPublicPosting: true,
@@ -36,23 +49,45 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [loadingMural, setLoadingMural] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
+  // Direct Admin Messaging state
+  const [messageTarget, setMessageTarget] = useState<AppUser | null>(null);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+
   const [adminNotice, setAdminNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !authService.isAdminOrOwner(currentUser)) return;
 
-    async function loadAdminData() {
-      setLoadingUsers(true);
-      try {
-        const userList = await authService.getRegisteredUsers();
+    setLoadingUsers(true);
+    setNowMs(Date.now());
+    void authService.updateUserPresence(true);
+
+    const unsubscribeUsers = authService.subscribeRegisteredUsers(
+      (userList) => {
         setUsers(userList);
-      } catch (err) {
+        const me = currentUser?.id ? userList.find((u) => u.id === currentUser.id) : undefined;
+        if (me?.lastSeenAt) {
+          const parsed = Date.parse(me.lastSeenAt);
+          if (Number.isFinite(parsed)) {
+            setServerAnchor({ serverMs: parsed, observedLocalMs: Date.now() });
+          }
+        }
+        setLoadingUsers(false);
+      },
+      (err) => {
         console.warn('Erro ao carregar usuários do Firestore:', err);
         setAdminNotice('Não foi possível carregar os usuários do Firestore. Verifique se você está autenticado com a conta Google de Administrador.');
-      } finally {
         setLoadingUsers(false);
       }
+    );
 
+    const tickTimer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 5_000);
+
+    async function loadExtraAdminData() {
       const currentSettings = await authService.getSiteSettings();
       setSettings(currentSettings);
 
@@ -67,7 +102,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       }
     }
 
-    loadAdminData();
+    loadExtraAdminData();
+
+    return () => {
+      unsubscribeUsers();
+      clearInterval(tickTimer);
+    };
   }, [isOpen, currentUser]);
 
   if (!isOpen || !authService.isAdminOrOwner(currentUser)) return null;
@@ -146,9 +186,53 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
+  const handleOpenMessageComposer = (user: AppUser) => {
+    setMessageTarget(user);
+    setMessageText('');
+    setMessageError(null);
+  };
+
+  const handleSendDirectMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!messageTarget || sendingMessage) return;
+
+    const trimmed = messageText.trim();
+    if (!trimmed) {
+      setMessageError('Escreva uma mensagem para enviar ao membro.');
+      return;
+    }
+
+    setSendingMessage(true);
+    setMessageError(null);
+    try {
+      const targetOnline = isUserCurrentlyOnline(messageTarget, presenceNowMs);
+      await authService.sendAdminMessage(messageTarget.id, trimmed);
+      setAdminNotice(
+        targetOnline
+          ? `Mensagem enviada para ${messageTarget.name} (online — o aviso será exibido imediatamente).`
+          : `Mensagem enviada para ${messageTarget.name} (offline — o aviso será exibido assim que entrar).`
+      );
+      setMessageTarget(null);
+      setMessageText('');
+    } catch (err: any) {
+      setMessageError(err?.message || 'Não foi possível enviar a mensagem.');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const presenceNowMs = computeServerPresenceNowMs(users, currentUser?.id, serverAnchor, nowMs);
+  const onlineUsersCount = users.filter((u) => isUserCurrentlyOnline(u, presenceNowMs)).length;
+  const offlineUsersCount = Math.max(0, users.length - onlineUsersCount);
+
   const filteredUsers = users.filter((u) => {
     const q = searchTerm.toLowerCase();
-    return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    const matchesSearch = u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    if (!matchesSearch) return false;
+    const isOnline = isUserCurrentlyOnline(u, presenceNowMs);
+    if (presenceFilter === 'online') return isOnline;
+    if (presenceFilter === 'offline') return !isOnline;
+    return true;
   });
 
   return (
@@ -258,24 +342,65 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           {/* TAB 1: MEMBERS & PERMISSIONS */}
           {activeTab === 'members' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#213025]">
-                <div>
-                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                    Controle de Acesso de Membros (Google OAuth)
-                  </h3>
-                  <p className="text-xs text-[#8ca092]">
-                    Todo torcedor que entra com sua Conta Google aparece aqui automaticamente para controle de cargo e permissões.
-                  </p>
+              <div className="flex flex-col gap-3 pb-3 border-b border-[#213025]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                      Controle de Acesso e Presença de Membros
+                    </h3>
+                    <p className="text-xs text-[#8ca092]">
+                      Acompanhe quem está online em tempo real e envie avisos diretos para membros online ou offline.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Buscar por nome ou e-mail..."
+                      className="h-8 px-3 text-xs bg-[#121c15] text-white border border-[#2b3c30] rounded-lg outline-none focus:border-[#43c776] w-48 sm:w-64"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por nome ou e-mail..."
-                    className="h-8 px-3 text-xs bg-[#121c15] text-white border border-[#2b3c30] rounded-lg outline-none focus:border-[#43c776] w-48 sm:w-64"
-                  />
+                {/* Presence Filter Bar */}
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setPresenceFilter('all')}
+                    className={`px-3 py-1 rounded-lg border transition cursor-pointer ${
+                      presenceFilter === 'all'
+                        ? 'bg-[#1b6b3b] border-[#38a664] text-white'
+                        : 'bg-[#111a14] border-[#26362a] text-[#8fa597] hover:text-white'
+                    }`}
+                  >
+                    Todos ({users.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresenceFilter('online')}
+                    className={`px-3 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
+                      presenceFilter === 'online'
+                        ? 'bg-[#144726] border-[#42d679] text-[#7dffad]'
+                        : 'bg-[#111a14] border-[#26362a] text-[#8fa597] hover:text-white'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#42d679] animate-pulse" />
+                    <span>Online agora ({onlineUsersCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresenceFilter('offline')}
+                    className={`px-3 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
+                      presenceFilter === 'offline'
+                        ? 'bg-[#222924] border-[#536459] text-white'
+                        : 'bg-[#111a14] border-[#26362a] text-[#8fa597] hover:text-white'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#627368]" />
+                    <span>Offline ({offlineUsersCount})</span>
+                  </button>
                 </div>
               </div>
 
@@ -286,7 +411,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   Nenhum membro encontrado.
                 </div>
               ) : (
-                <div className="border border-[#26372a] rounded-xl overflow-hidden bg-[#0e1610]">
+                <div className="border border-[#26372a] rounded-xl overflow-x-auto bg-[#0e1610]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-[#142017] border-b border-[#26372a] text-[#8ea394] font-bold">
@@ -303,6 +428,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     <tbody className="divide-y divide-[#1c291f]">
                       {filteredUsers.map((user) => {
                         const isThisOwner = user.email?.toLowerCase() === OWNER_EMAIL.toLowerCase();
+                        const isOnline = isUserCurrentlyOnline(user, presenceNowMs);
+                        const lastSeenLabel = formatLastSeenLabel(user.lastSeenAt, presenceNowMs);
 
                         return (
                           <tr
@@ -314,12 +441,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                             {/* Member info */}
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d62839] to-[#1f3022] border border-[#3b5240] flex items-center justify-center font-black text-white text-xs shrink-0 overflow-hidden">
-                                  {user.avatar ? (
-                                    <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                                  ) : (
-                                    user.name.charAt(0).toUpperCase()
-                                  )}
+                                <div className="relative shrink-0">
+                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d62839] to-[#1f3022] border border-[#3b5240] flex items-center justify-center font-black text-white text-xs overflow-hidden">
+                                    {user.avatar ? (
+                                      <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      user.name.charAt(0).toUpperCase()
+                                    )}
+                                  </div>
+                                  <span
+                                    title={isOnline ? 'Online agora' : `Offline • ${lastSeenLabel}`}
+                                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0e1610] ${
+                                      isOnline ? 'bg-[#42d679]' : 'bg-[#64756a]'
+                                    }`}
+                                  />
                                 </div>
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
@@ -332,6 +467,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                   </div>
                                   <span className="text-[11px] text-[#7d9384] truncate block">
                                     {user.email}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold inline-flex items-center gap-1 mt-0.5 ${
+                                      isOnline ? 'text-[#62f094]' : 'text-[#7c8f83]'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full ${
+                                        isOnline ? 'bg-[#42d679] animate-pulse' : 'bg-[#64756a]'
+                                      }`}
+                                    />
+                                    {isOnline ? 'Online agora' : `Offline • ${lastSeenLabel}`}
                                   </span>
                                 </div>
                               </div>
@@ -434,16 +581,31 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                               />
                             </td>
 
-                            {/* Action: Delete */}
+                            {/* Actions: Direct Message + Delete */}
                             <td className="py-3 px-4 text-right">
-                              {!isThisOwner && (
+                              <div className="inline-flex items-center justify-end gap-1.5">
                                 <button
-                                  onClick={() => handleDeleteUser(user.id, user.email)}
-                                  className="px-2 py-1 bg-[#261618] hover:bg-[#3d1a1e] border border-[#522428] text-[#ff808d] rounded text-[11px] font-bold transition cursor-pointer"
+                                  type="button"
+                                  onClick={() => handleOpenMessageComposer(user)}
+                                  title={
+                                    isOnline
+                                      ? `Enviar mensagem imediata para ${user.name}`
+                                      : `Enviar mensagem para ${user.name} (verá ao entrar)`
+                                  }
+                                  className="px-2 py-1 bg-[#14301f] hover:bg-[#1d482e] border border-[#2c6642] text-[#7ef7aa] rounded text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
                                 >
-                                  Remover
+                                  ✉️ Mensagem
                                 </button>
-                              )}
+                                {!isThisOwner && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteUser(user.id, user.email)}
+                                    className="px-2 py-1 bg-[#261618] hover:bg-[#3d1a1e] border border-[#522428] text-[#ff808d] rounded text-[11px] font-bold transition cursor-pointer"
+                                  >
+                                    Remover
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -767,6 +929,109 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <img src={previewPhoto} alt="Foto da Escalação" className="max-w-full max-h-[78vh] object-contain rounded-lg" />
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Direct Message Composer Sub-Modal */}
+      {messageTarget && (
+        <div
+          onClick={() => !sendingMessage && setMessageTarget(null)}
+          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <form
+            onSubmit={handleSendDirectMessage}
+            onClick={(e) => e.stopPropagation()}
+            className="w-[min(480px,95vw)] bg-[#0f1712] border border-[#35553e] rounded-2xl shadow-2xl overflow-hidden text-[#e6ece8]"
+          >
+            <div className="px-5 py-4 bg-[#142118] border-b border-[#25382a] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d62839] to-[#1f3022] border border-[#3b5240] flex items-center justify-center font-black text-white text-xs shrink-0 overflow-hidden">
+                  {messageTarget.avatar ? (
+                    <img
+                      src={messageTarget.avatar}
+                      alt={messageTarget.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    messageTarget.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-black text-white truncate">
+                    Enviar Mensagem para {messageTarget.name}
+                  </h4>
+                  <p className="text-[11px] text-[#8ca394] truncate">
+                    {messageTarget.email}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={sendingMessage}
+                onClick={() => setMessageTarget(null)}
+                className="text-gray-400 hover:text-white px-1.5 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {isUserCurrentlyOnline(messageTarget, presenceNowMs) ? (
+                <div className="px-3 py-2 rounded-lg bg-[#12331d] border border-[#2a6d40] text-[11px] font-bold text-[#74f59f] flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#42d679] animate-pulse shrink-0" />
+                  <span>Membro online agora — a mensagem aparecerá imediatamente na tela dele.</span>
+                </div>
+              ) : (
+                <div className="px-3 py-2 rounded-lg bg-[#18201b] border border-[#313f36] text-[11px] font-bold text-[#b6c7bc] flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#6c7e72] shrink-0" />
+                  <span>Membro offline — a mensagem ficará aguardando e abrirá assim que ele entrar.</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-black text-[#8aa092] uppercase tracking-wider">
+                    Conteúdo da Mensagem
+                  </label>
+                  <span className="text-[10px] text-[#7c9284] font-mono">
+                    {messageText.length}/1000
+                  </span>
+                </div>
+                <textarea
+                  rows={4}
+                  maxLength={1000}
+                  autoFocus
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="Digite o comunicado para este membro..."
+                  className="w-full p-3 text-xs bg-[#0a100c] text-white border border-[#2f4535] rounded-xl outline-none focus:border-[#43c776] resize-none leading-relaxed"
+                />
+              </div>
+
+              {messageError && (
+                <p className="text-xs font-bold text-[#ff808d]">{messageError}</p>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-[#0a100c] border-t border-[#1f2e23] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={sendingMessage}
+                onClick={() => setMessageTarget(null)}
+                className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={sendingMessage || !messageText.trim()}
+                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow cursor-pointer disabled:opacity-50"
+              >
+                {sendingMessage ? 'Enviando...' : 'Enviar Mensagem'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
