@@ -56,6 +56,7 @@ export {
 };
 
 let cachedCurrentUser: AppUser | null = null;
+const inFlightSyncByUid = new Map<string, Promise<AppUser>>();
 
 function toIsoString(val: unknown): string {
   if (val instanceof Timestamp) return val.toDate().toISOString();
@@ -67,7 +68,7 @@ function clampString(val: string | null | undefined, max: number): string {
   return (val || '').trim().slice(0, max);
 }
 
-async function syncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUser> {
+async function performSyncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUser> {
   const email = clampString(fbUser.email, 200).toLowerCase();
   if (!email || !fbUser.emailVerified) {
     await signOut(auth).catch(() => {});
@@ -108,6 +109,33 @@ async function syncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUse
     try {
       await setDoc(userRef, payload);
     } catch (err) {
+      // Check if a concurrent tab/session created the doc a millisecond earlier
+      try {
+        const retrySnap = await getDoc(userRef);
+        if (retrySnap.exists()) {
+          const existing = retrySnap.data() as Record<string, any>;
+          const resolvedRole: UserRole = ownerMatch
+            ? 'owner'
+            : (existing.role as UserRole) || 'member';
+          const syncedUser: AppUser = {
+            id: fbUser.uid,
+            email,
+            emailVerified: fbUser.emailVerified,
+            name: String(existing.name || displayName),
+            avatar: String(existing.avatar || avatar),
+            role: resolvedRole,
+            status: ownerMatch ? 'active' : (existing.status as UserStatus) || 'active',
+            permissions: ownerMatch
+              ? buildDefaultPermissionsForRole('owner')
+              : existing.permissions || buildDefaultPermissionsForRole(resolvedRole),
+            createdAt: toIsoString(existing.createdAt)
+          };
+          cachedCurrentUser = syncedUser;
+          return syncedUser;
+        }
+      } catch {
+        // Ignore retry read error and fall through to handleFirestoreError
+      }
       handleFirestoreError(err, OperationType.CREATE, userPath);
     }
 
@@ -132,15 +160,17 @@ async function syncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUse
     throw new Error('Esta conta foi suspensa pela administração do Fala Vascão.');
   }
 
-  // Action A: Self profile sync (only name, avatar, updatedAt)
-  try {
-    await updateDoc(userRef, {
-      name: displayName,
-      avatar,
-      updatedAt: serverTimestamp()
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, userPath);
+  // Action A: Self profile sync only when name or avatar actually changed
+  if (existing.name !== displayName || (existing.avatar || '') !== avatar) {
+    try {
+      await updateDoc(userRef, {
+        name: displayName,
+        avatar,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, userPath);
+    }
   }
 
   const resolvedRole: UserRole = ownerMatch
@@ -163,6 +193,19 @@ async function syncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUse
   };
   cachedCurrentUser = syncedUser;
   return syncedUser;
+}
+
+function syncFirebaseUserToFirestore(fbUser: FirebaseUser): Promise<AppUser> {
+  const existingPromise = inFlightSyncByUid.get(fbUser.uid);
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const syncPromise = performSyncFirebaseUserToFirestore(fbUser).finally(() => {
+    inFlightSyncByUid.delete(fbUser.uid);
+  });
+  inFlightSyncByUid.set(fbUser.uid, syncPromise);
+  return syncPromise;
 }
 
 export const authService = {

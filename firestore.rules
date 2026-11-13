@@ -29,7 +29,10 @@ service cloud.firestore {
     }
 
     function isOwnerEmail() {
-      return isVerified() && request.auth.token.email.lower() == 'tazmaniacrvg@gmail.com';
+      return isVerified() &&
+        'email' in request.auth.token &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'tazmaniacrvg@gmail.com';
     }
 
     function isAdmin() {
@@ -146,27 +149,29 @@ service cloud.firestore {
         request.auth.uid == userId &&
         isValidUser(incoming()) &&
         incoming().uid == request.auth.uid &&
+        'email' in request.auth.token &&
+        request.auth.token.email is string &&
         incoming().email.lower() == request.auth.token.email.lower() &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (
-          isOwnerEmail()
-            ? (
-                incoming().role == 'owner' &&
-                incoming().status == 'active' &&
-                incoming().permissions.canPostMural == true &&
-                incoming().permissions.canUseTactics == true &&
-                incoming().permissions.canUseAdvancedTools == true &&
-                incoming().permissions.canModerate == true
-              )
-            : (
-                incoming().role == 'member' &&
-                incoming().status == 'active' &&
-                incoming().permissions.canPostMural == true &&
-                incoming().permissions.canUseTactics == true &&
-                incoming().permissions.canUseAdvancedTools == false &&
-                incoming().permissions.canModerate == false
-              )
+          (
+            isOwnerEmail() &&
+            incoming().role == 'owner' &&
+            incoming().status == 'active' &&
+            incoming().permissions.canPostMural == true &&
+            incoming().permissions.canUseTactics == true &&
+            incoming().permissions.canUseAdvancedTools == true &&
+            incoming().permissions.canModerate == true
+          ) || (
+            !isOwnerEmail() &&
+            incoming().role == 'member' &&
+            incoming().status == 'active' &&
+            incoming().permissions.canPostMural == true &&
+            incoming().permissions.canUseTactics == true &&
+            incoming().permissions.canUseAdvancedTools == false &&
+            incoming().permissions.canModerate == false
+          )
         );
 
       allow update: if isVerified() &&
