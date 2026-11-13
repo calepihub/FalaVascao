@@ -10,6 +10,7 @@ import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
 import { AppUser, SiteSettings, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
+import { FIREBASE_PROJECT_ID } from './data/firebase';
 import { databaseService, DbClub, DbPlayer, getClubColors } from './data/databaseService';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { AdminProfileModal } from './components/AdminProfileModal';
@@ -36,6 +37,7 @@ export default function App() {
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [isCapturingMuralPhoto, setIsCapturingMuralPhoto] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
+  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
   const pendingOpenTacticsRef = useRef(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'warn' | 'error' | 'info' = 'info') => {
@@ -84,6 +86,13 @@ export default function App() {
       } else if (code === 'auth/popup-blocked') {
         showToast(
           'O navegador bloqueou o pop-up do Google. Permita pop-ups para este site e tente novamente.',
+          'warn'
+        );
+      } else if (code === 'auth/unauthorized-domain') {
+        const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+        setUnauthorizedDomainHost(currentHost || 'seu-site.netlify.app');
+        showToast(
+          `Domínio "${currentHost}" não autorizado no Firebase Authentication. Adicione-o em Authorized domains.`,
           'warn'
         );
       } else {
@@ -1731,6 +1740,77 @@ export default function App() {
         onRemoveToken={handleRemoveTokenFromModal}
         onUpdateComment={handleUpdateCommentFromModal}
       />
+
+      {/* Firebase Unauthorized Domain Helper Modal (e.g. new Netlify / custom domain) */}
+      {unauthorizedDomainHost && (
+        <div className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-[min(520px,95vw)] bg-[#101712] border border-[#d49924] rounded-2xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3 pb-2 border-b border-[#25362a]">
+              <div>
+                <h3 className="text-base font-black text-white">
+                  Autorizar domínio no Firebase Authentication
+                </h3>
+                <p className="text-[11px] text-amber-300 mt-0.5">
+                  O Login com Google bloqueou este domínio por segurança (<code>auth/unauthorized-domain</code>).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUnauthorizedDomainHost(null)}
+                className="text-gray-400 hover:text-white text-sm cursor-pointer px-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-[#c7d6cc]">
+              <p>
+                Sempre que publicar em uma nova URL (como Netlify ou domínio próprio), adicione o domínio abaixo na lista de <b>Domínios autorizados</b> do projeto Firebase <code className="text-white">{FIREBASE_PROJECT_ID}</code>:
+              </p>
+
+              <div className="flex items-center justify-between gap-2 bg-[#0a100c] border border-[#2c4031] rounded-lg px-3 py-2">
+                <code className="text-emerald-400 font-bold text-xs break-all">
+                  {unauthorizedDomainHost}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(unauthorizedDomainHost);
+                    showToast('Domínio copiado para a área de transferência!', 'success');
+                  }}
+                  className="px-2.5 py-1 bg-[#1b2e21] hover:bg-[#274430] border border-[#3a5c44] text-white rounded text-[11px] font-bold shrink-0 cursor-pointer"
+                >
+                  Copiar
+                </button>
+              </div>
+
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-[#9eb2a4]">
+                <li>Acesse o Console do Firebase no link abaixo;</li>
+                <li>Vá em <b>Authentication → Settings → Authorized domains</b>;</li>
+                <li>Clique em <b>Add domain</b>, cole <b>{unauthorizedDomainHost}</b> e salve.</li>
+              </ol>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#25362a]">
+              <button
+                type="button"
+                onClick={() => setUnauthorizedDomainHost(null)}
+                className="px-3 py-1.5 text-xs font-bold text-gray-300 hover:text-white cursor-pointer"
+              >
+                Fechar
+              </button>
+              <a
+                href={`https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/settings`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow"
+              >
+                Abrir Firebase Authentication ↗
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Non-intrusive Toast Notification Banner */}
       {toast && (
