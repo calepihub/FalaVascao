@@ -182,12 +182,11 @@ export const InterbaseModal: React.FC<InterbaseModalProps> = ({
 
                 <div className="bg-[#141d17] border border-[#2c3d31] rounded-lg p-3">
                   <div className="text-[10px] font-black text-[#899f92] uppercase">
-                    2. Servidor Integrado
+                    2. Nuvem Integrada
                   </div>
-                  <div className="text-lg font-bold text-[#68d790] mt-1">API REST / InterBase</div>
+                  <div className="text-lg font-bold text-[#68d790] mt-1">Firebase Firestore</div>
                   <p className="text-[10px] text-[#91a397] mt-1 leading-relaxed">
-                    Sincronização persistente nos endpoints <code>/api/interbase/*</code> da
-                    aplicação.
+                    Sincronização persistente na nuvem com Firebase Authentication e Firestore.
                   </p>
                 </div>
 

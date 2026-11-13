@@ -9,10 +9,9 @@ import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
-import { AppUser, SiteSettings, authService, OWNER_EMAIL } from './data/auth';
+import { AppUser, SiteSettings, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
 import { databaseService, DbClub, DbPlayer, getClubColors } from './data/databaseService';
 import { AdminPanelModal } from './components/AdminPanelModal';
-import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { AdminProfileModal } from './components/AdminProfileModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { RosterPlayerItem } from './components/RosterPanel';
@@ -29,19 +28,12 @@ export default function App() {
   // Navigation & View
   const [currentView, setCurrentView] = useState<'portal' | 'tactics'>('portal');
 
-  // Auth & Admin state
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => authService.getCurrentUser());
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  // Auth & Admin state (strictly verified via Firebase Google OAuth)
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isAdminProfileOpen, setIsAdminProfileOpen] = useState(false);
-  const [siteSettings, setSiteSettings] = useState<SiteSettings>({
-    muralVisible: true,
-    muralPublicPosting: true,
-    tacticsVisible: true,
-    advancedToolsVisible: true,
-    liveStreamsVisible: true,
-    kickBannerVisible: true
-  });
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [isCapturingMuralPhoto, setIsCapturingMuralPhoto] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
 
@@ -51,6 +43,37 @@ export default function App() {
       setToast((prev) => (prev?.message === message ? null : prev));
     }, 4500);
   }, []);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    if (isSigningIn) return;
+    setIsSigningIn(true);
+    try {
+      const user = await authService.signInWithGoogle();
+      setCurrentUser(user);
+      setPublishAuthor(user.name);
+      const isOwnerUser = authService.isOwner(user);
+      showToast(
+        isOwnerUser
+          ? `Conectado como Administrador Master (${user.email}).`
+          : `Bem-vindo, ${user.name}! Conectado com sua Conta Google.`,
+        'success'
+      );
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        showToast('Login com o Google cancelado.', 'info');
+      } else if (code === 'auth/popup-blocked') {
+        showToast(
+          'O navegador bloqueou o pop-up do Google. Permita pop-ups para este site e tente novamente.',
+          'warn'
+        );
+      } else {
+        showToast(err?.message || 'Não foi possível concluir o login com o Google.', 'error');
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [isSigningIn, showToast]);
 
   // State (always backed by bd.xlsx without temporary overrides)
   const [squad, setSquad] = useState<RosterPlayerItem[]>(INITIAL_SQUAD);
@@ -215,18 +238,33 @@ export default function App() {
       const boards = await storage.getAllBoards();
       setSavedBoards(boards);
 
-      // Load site settings & verify owner
+      // Load site settings from Firestore
       const settings = await authService.getSiteSettings();
       setSiteSettings(settings);
-
-      const logged = authService.getCurrentUser();
-      if (logged) {
-        setCurrentUser(logged);
-        setPublishAuthor(logged.name);
-      }
     }
     init();
-  }, []);
+
+    // Real-time Firebase Auth state listener (email-verified role routing)
+    const unsubscribeAuth = authService.onAuthChange((user, errorMsg) => {
+      setCurrentUser(user);
+      if (user) {
+        setPublishAuthor(user.name);
+      }
+      if (errorMsg) {
+        showToast(errorMsg, 'error');
+      }
+    });
+
+    // Real-time Firestore site settings listener
+    const unsubscribeSettings = authService.subscribeSiteSettings((settings) => {
+      setSiteSettings(settings);
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeSettings();
+    };
+  }, [showToast]);
 
   // Save history state
   const pushHistory = useCallback(
@@ -748,10 +786,10 @@ export default function App() {
 
   // Delete Board
   const handleDeleteBoard = async (id: number | string) => {
-    if (!confirm('Excluir esta prancheta?')) return;
     await storage.deleteBoard(id);
     const all = await storage.getAllBoards();
     setSavedBoards(all);
+    setStatusMessage('Prancheta removida.');
   };
 
   // Load Community Lineup from Mural
@@ -781,8 +819,8 @@ export default function App() {
     e.preventDefault();
 
     if (!currentUser) {
-      showToast('Faça login com sua conta Google para publicar sua escalação no mural.', 'info');
-      setIsAuthModalOpen(true);
+      showToast('Conecte sua Conta Google para publicar sua escalação no mural.', 'info');
+      await handleGoogleSignIn();
       return;
     }
 
@@ -801,7 +839,7 @@ export default function App() {
       .map((t) => ({
         name: t.name || '',
         role: t.role || '',
-        photo: t.photo,
+        photo: t.photo || '',
         x: t.x,
         y: t.y
       }));
@@ -820,11 +858,11 @@ export default function App() {
       try {
         const canvas = await html2canvas(pitchwrap, {
           backgroundColor: '#080c09',
-          scale: 1.8,
+          scale: 1.4,
           useCORS: true,
           logging: false
         });
-        imageUrl = canvas.toDataURL('image/jpeg', 0.85);
+        imageUrl = canvas.toDataURL('image/jpeg', 0.78);
       } catch (err) {
         console.warn('Erro ao gerar foto do campo com html2canvas', err);
       }
@@ -832,27 +870,31 @@ export default function App() {
 
     const authorName = publishAuthor.trim() || currentUser.name;
 
-    const published = await storage.publishCommunityLineup({
-      author: authorName,
-      authorEmail: currentUser.email,
-      authorAvatar: currentUser.avatar,
-      authorRole: currentUser.role,
-      title: publishTitle.trim(),
-      opponentClub: selectedClub || 'Geral',
-      formation: '4-3-3',
-      players: vascoPlayers,
-      imageUrl: imageUrl || undefined
-    });
+    try {
+      const published = await storage.publishCommunityLineup({
+        authorUid: currentUser.id,
+        author: authorName,
+        authorAvatar: currentUser.avatar,
+        authorRole: currentUser.role,
+        title: publishTitle.trim(),
+        opponentClub: selectedClub || 'Geral',
+        formation: '4-3-3',
+        players: vascoPlayers,
+        imageUrl: imageUrl || undefined
+      });
 
-    setIsCapturingMuralPhoto(false);
-
-    if (published) {
-      setIsPublishModalOpen(false);
-      setPublishTitle('');
-      setStatusMessage('Foto da sua escalação foi publicada no Mural da Torcida com sucesso!');
-      showToast('Sua escalação foi publicada no Mural da Torcida com foto estática protegida!', 'success');
-    } else {
-      showToast('Não foi possível publicar no momento. Tente novamente.', 'error');
+      if (published) {
+        setIsPublishModalOpen(false);
+        setPublishTitle('');
+        setStatusMessage('Foto da sua escalação foi publicada no Mural da Torcida com sucesso!');
+        showToast('Sua escalação foi publicada no Mural da Torcida no Firestore!', 'success');
+      } else {
+        showToast('Não foi possível publicar no momento. Tente novamente.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao publicar escalação no Firestore.', 'error');
+    } finally {
+      setIsCapturingMuralPhoto(false);
     }
   };
 
@@ -1116,9 +1158,11 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    authService.logout();
+                  onClick={async () => {
+                    await authService.logout();
                     setCurrentUser(null);
+                    setIsAdminModalOpen(false);
+                    setIsAdminProfileOpen(false);
                     showToast('Você desconectou da sua conta Google.', 'info');
                   }}
                   className="text-gray-400 hover:text-[#ff8e99] text-[9.5px] px-0.5 cursor-pointer"
@@ -1130,9 +1174,10 @@ export default function App() {
             ) : (
               <button
                 type="button"
-                onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1 bg-white hover:bg-gray-100 text-gray-900 px-2 py-0.5 rounded transition font-black cursor-pointer shadow whitespace-nowrap"
-                title="Fazer login com a Conta Google"
+                disabled={isSigningIn}
+                onClick={handleGoogleSignIn}
+                className="flex items-center gap-1 bg-white hover:bg-gray-100 text-gray-900 px-2 py-0.5 rounded transition font-black cursor-pointer shadow whitespace-nowrap disabled:opacity-60"
+                title="Fazer login real com a Conta Google"
               >
                 <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24">
                   <path
@@ -1152,7 +1197,7 @@ export default function App() {
                     d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                   />
                 </svg>
-                <span>Entrar</span>
+                <span>{isSigningIn ? 'Entrando...' : 'Entrar'}</span>
               </button>
             )}
 
@@ -1224,12 +1269,18 @@ export default function App() {
           <PortalView
             onOpenTactics={() => setCurrentView('tactics')}
             currentUser={currentUser}
-            onOpenLogin={() => setIsAuthModalOpen(true)}
-            onLogout={() => {
-              authService.logout();
+            onOpenLogin={handleGoogleSignIn}
+            onLogout={async () => {
+              await authService.logout();
               setCurrentUser(null);
+              setIsAdminModalOpen(false);
+              setIsAdminProfileOpen(false);
             }}
-            onOpenAdminPanel={() => setIsAdminModalOpen(true)}
+            onOpenAdminPanel={() => {
+              if (authService.isAdminOrOwner(currentUser)) {
+                setIsAdminModalOpen(true);
+              }
+            }}
             onOpenAdminProfile={() => setIsAdminProfileOpen(true)}
             siteSettings={siteSettings}
           />
@@ -1375,10 +1426,10 @@ export default function App() {
                 savedPlays={savedPlays}
                 onLoadSavedPlay={handleLoadSavedPlay}
                 onDeleteSavedPlay={async (id) => {
-                  if (!confirm('Excluir esta jogada salva?')) return;
                   await storage.deletePlay(id);
                   const all = await storage.getAllPlays();
                   setSavedPlays(all);
+                  setStatusMessage('Jogada removida.');
                 }}
                 isAnimating={isAnimating}
                 fieldTokens={tokens}
@@ -1583,40 +1634,30 @@ export default function App() {
         </div>
       )}
 
-      {/* Admin Panel Modal for Owner tazmaniacrvg@gmail.com */}
-      <AdminPanelModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-        currentUser={currentUser}
-        onSettingsChanged={(updated) => setSiteSettings(updated)}
-      />
-
-      {/* Google Sign-In Authentication Modal */}
-      <GoogleAuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setPublishAuthor(user.name);
-          const isOwnerUser = authService.isOwner(user);
-          showToast(
-            isOwnerUser
-              ? `👑 Conectado como Administrador Master (${user.email})!`
-              : `Bem-vindo, ${user.name}! Conectado via Google.`,
-            'success'
-          );
-        }}
-      />
+      {/* Admin Panel Modal (strictly gated for verified Owner/Admin) */}
+      {authService.isAdminOrOwner(currentUser) && (
+        <AdminPanelModal
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+          currentUser={currentUser}
+          onSettingsChanged={(updated) => setSiteSettings(updated)}
+        />
+      )}
 
       {/* Administrator & Member Profile Modal */}
       <AdminProfileModal
         isOpen={isAdminProfileOpen}
         onClose={() => setIsAdminProfileOpen(false)}
         currentUser={currentUser}
-        onOpenAdminPanel={() => setIsAdminModalOpen(true)}
-        onLogout={() => {
-          authService.logout();
+        onOpenAdminPanel={() => {
+          if (authService.isAdminOrOwner(currentUser)) {
+            setIsAdminModalOpen(true);
+          }
+        }}
+        onLogout={async () => {
+          await authService.logout();
           setCurrentUser(null);
+          setIsAdminModalOpen(false);
           showToast('Você desconectou da sua conta Google.', 'info');
         }}
         onGoToTactics={currentView === 'portal' ? () => setCurrentView('tactics') : undefined}

@@ -68,12 +68,13 @@ export const PortalView: React.FC<PortalViewProps> = ({
   // Static Photo Lightbox preview
   const [previewPhotoLineup, setPreviewPhotoLineup] = useState<CommunityLineup | null>(null);
   const [muralNotice, setMuralNotice] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const isOwner = authService.isOwner(currentUser);
   const isAdmin = authService.isAdminOrOwner(currentUser);
 
   useEffect(() => {
-    async function loadData() {
+    async function loadVideos() {
       try {
         const res = await fetch('/api/youtube/videos');
         if (res.ok) {
@@ -86,7 +87,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
           }
         }
         throw new Error('API do servidor indisponível (hospedagem estática Netlify/GitHub)');
-      } catch (e) {
+      } catch {
         // Fallback for Netlify, GitHub Pages, or offline mode
         setChannelData(FALLBACK_CHANNEL_DATA as any);
         if (FALLBACK_CHANNEL_DATA.videos?.length > 0) {
@@ -96,7 +97,9 @@ export const PortalView: React.FC<PortalViewProps> = ({
       } finally {
         setLoadingVideos(false);
       }
+    }
 
+    async function loadCommunity() {
       try {
         const murals = await storage.getCommunityLineups();
         setCommunityLineups(murals);
@@ -107,6 +110,11 @@ export const PortalView: React.FC<PortalViewProps> = ({
       }
     }
 
+    function loadData() {
+      void loadVideos();
+      void loadCommunity();
+    }
+
     loadData();
     const interval = setInterval(loadData, 60000); // 1-minute auto refresh
     return () => clearInterval(interval);
@@ -114,17 +122,33 @@ export const PortalView: React.FC<PortalViewProps> = ({
 
   const handleLike = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newLikes = await storage.likeCommunityLineup(id);
-    if (newLikes !== null) {
-      setCommunityLineups((prev) =>
-        prev.map((l) => (l.id === id ? { ...l, likes: newLikes } : l))
-      );
+    if (!currentUser) {
+      onOpenLogin();
+      return;
+    }
+    try {
+      const newLikes = await storage.likeCommunityLineup(id);
+      if (newLikes !== null) {
+        setCommunityLineups((prev) =>
+          prev.map((l) => (l.id === id ? { ...l, likes: newLikes } : l))
+        );
+      }
+    } catch {
+      setMuralNotice('Não foi possível registrar sua curtida no momento.');
+      setTimeout(() => setMuralNotice(null), 4000);
     }
   };
 
-  const handleDeleteLineup = async (id: string, title: string, e: React.MouseEvent) => {
+  const handleDeleteLineup = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Remover a foto da escalação "${title}" do mural?`)) return;
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      setTimeout(() => {
+        setConfirmDeleteId((prev) => (prev === id ? null : prev));
+      }, 4000);
+      return;
+    }
+    setConfirmDeleteId(null);
     const ok = await storage.deleteCommunityLineup(id);
     if (ok) {
       setCommunityLineups((prev) => prev.filter((l) => l.id !== id));
@@ -707,7 +731,8 @@ export const PortalView: React.FC<PortalViewProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {communityLineups.map((lineup) => {
                   const canDelete =
-                    isAdmin || (currentUser?.name && currentUser.name === lineup.author);
+                    isAdmin ||
+                    (Boolean(currentUser?.id) && currentUser?.id === lineup.authorUid);
 
                   return (
                     <div
@@ -802,11 +827,19 @@ export const PortalView: React.FC<PortalViewProps> = ({
 
                           {canDelete && (
                             <button
-                              onClick={(e) => handleDeleteLineup(lineup.id, lineup.title, e)}
-                              className="px-2 py-1 bg-[#261517] hover:bg-[#3d191d] text-[#ff808e] border border-[#542429] rounded font-bold transition cursor-pointer text-[11px]"
-                              title="Remover publicação"
+                              onClick={(e) => handleDeleteLineup(lineup.id, e)}
+                              className={`px-2 py-1 rounded font-bold transition cursor-pointer text-[11px] border ${
+                                confirmDeleteId === lineup.id
+                                  ? 'bg-[#c91f32] text-white border-[#ff808e]'
+                                  : 'bg-[#261517] hover:bg-[#3d191d] text-[#ff808e] border-[#542429]'
+                              }`}
+                              title={
+                                confirmDeleteId === lineup.id
+                                  ? 'Clique novamente para confirmar a exclusão'
+                                  : 'Remover publicação'
+                              }
                             >
-                              Remover
+                              {confirmDeleteId === lineup.id ? 'Confirmar?' : 'Remover'}
                             </button>
                           )}
                         </div>

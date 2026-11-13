@@ -1,69 +1,88 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authService, OWNER_EMAIL, AppUser } from './auth';
+import {
+  AppUser,
+  buildDefaultPermissionsForRole,
+  isAdminOrOwnerUser,
+  isOwnerUser,
+  isVerifiedOwnerEmail,
+  OWNER_EMAIL,
+  resolveInitialRoleForGoogleEmail
+} from './authRoles';
 
-test('authService recognizes tazmaniacrvg@gmail.com as Owner and Super Admin', () => {
+test('recognizes verified tazmaniacrvg@gmail.com as Owner and Super Admin', () => {
   const ownerUser: AppUser = {
-    id: 'test_owner',
-    email: 'tazmaniacrvg@gmail.com',
+    id: 'uid_owner',
+    email: OWNER_EMAIL,
+    emailVerified: true,
     name: 'Tazmania CRVG',
     avatar: '',
     role: 'owner',
     status: 'active',
-    permissions: {
-      canPostMural: true,
-      canUseTactics: true,
-      canUseAdvancedTools: true,
-      canModerate: true
-    },
+    permissions: buildDefaultPermissionsForRole('owner'),
     createdAt: new Date().toISOString()
   };
 
-  assert.equal(authService.isOwner(ownerUser), true);
-  assert.equal(authService.isAdminOrOwner(ownerUser), true);
+  assert.equal(isOwnerUser(ownerUser), true);
+  assert.equal(isAdminOrOwnerUser(ownerUser), true);
+  assert.equal(resolveInitialRoleForGoogleEmail('tazmaniacrvg@gmail.com', true), 'owner');
 });
 
-test('authService enforces owner status even if email has uppercase characters', () => {
+test('enforces owner recognition case-insensitively when Google email is verified', () => {
   const upperCaseOwner: AppUser = {
-    id: 'test_owner_upper',
+    id: 'uid_owner_upper',
     email: 'TAZMANIACRVG@GMAIL.COM',
+    emailVerified: true,
     name: 'Tazmania CRVG',
     avatar: '',
     role: 'owner',
     status: 'active',
-    permissions: {
-      canPostMural: true,
-      canUseTactics: true,
-      canUseAdvancedTools: true,
-      canModerate: true
-    },
+    permissions: buildDefaultPermissionsForRole('owner'),
     createdAt: new Date().toISOString()
   };
 
-  assert.equal(authService.isOwner(upperCaseOwner), true);
-  assert.equal(authService.isAdminOrOwner(upperCaseOwner), true);
+  assert.equal(isOwnerUser(upperCaseOwner), true);
+  assert.equal(isAdminOrOwnerUser(upperCaseOwner), true);
+  assert.equal(isVerifiedOwnerEmail('TAZMANIACRVG@GMAIL.COM', true), true);
 });
 
-test('regular member is not owner but can use allowed features', () => {
+test('rejects unverified email spoofing even when email string matches owner', () => {
+  const spoofedOwner: AppUser = {
+    id: 'uid_spoof',
+    email: OWNER_EMAIL,
+    emailVerified: false,
+    name: 'Spoofer',
+    avatar: '',
+    role: 'owner',
+    status: 'active',
+    permissions: buildDefaultPermissionsForRole('owner'),
+    createdAt: new Date().toISOString()
+  };
+
+  assert.equal(isOwnerUser(spoofedOwner), false);
+  assert.equal(isAdminOrOwnerUser(spoofedOwner), false);
+  assert.equal(resolveInitialRoleForGoogleEmail(OWNER_EMAIL, false), 'member');
+});
+
+test('routes any other Google email to standard member role without admin access', () => {
+  assert.equal(resolveInitialRoleForGoogleEmail('torcedor@gmail.com', true), 'member');
+
   const member: AppUser = {
-    id: 'test_member',
+    id: 'uid_member',
     email: 'torcedor@gmail.com',
+    emailVerified: true,
     name: 'Torcedor Vascaíno',
     avatar: '',
     role: 'member',
     status: 'active',
-    permissions: {
-      canPostMural: true,
-      canUseTactics: true,
-      canUseAdvancedTools: false,
-      canModerate: false
-    },
+    permissions: buildDefaultPermissionsForRole('member'),
     createdAt: new Date().toISOString()
   };
 
-  assert.equal(authService.isOwner(member), false);
-  assert.equal(authService.isAdminOrOwner(member), false);
+  assert.equal(isOwnerUser(member), false);
+  assert.equal(isAdminOrOwnerUser(member), false);
   assert.equal(member.permissions.canPostMural, true);
   assert.equal(member.permissions.canUseTactics, true);
   assert.equal(member.permissions.canUseAdvancedTools, false);
+  assert.equal(member.permissions.canModerate, false);
 });

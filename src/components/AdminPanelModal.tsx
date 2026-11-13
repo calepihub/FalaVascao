@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppUser, UserRole, UserStatus, SiteSettings, authService, OWNER_EMAIL } from '../data/auth';
 import { CommunityLineup, storage } from '../data/storage';
+import { FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID } from '../data/firebase';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -35,36 +36,41 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [loadingMural, setLoadingMural] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
-  // New member manual add modal state
-  const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
-  const [newEmail, setNewEmail] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState<UserRole>('member');
+  const [adminNotice, setAdminNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !authService.isAdminOrOwner(currentUser)) return;
 
     async function loadAdminData() {
       setLoadingUsers(true);
-      const userList = await authService.getRegisteredUsers();
-      setUsers(userList);
-      setLoadingUsers(false);
+      try {
+        const userList = await authService.getRegisteredUsers();
+        setUsers(userList);
+      } catch (err) {
+        console.warn('Erro ao carregar usuários do Firestore:', err);
+        setAdminNotice('Não foi possível carregar os usuários do Firestore. Verifique se você está autenticado com a conta Google de Administrador.');
+      } finally {
+        setLoadingUsers(false);
+      }
 
       const currentSettings = await authService.getSiteSettings();
       setSettings(currentSettings);
 
       setLoadingMural(true);
-      const lineups = await storage.getCommunityLineups();
-      setMuralList(lineups);
-      setLoadingMural(false);
+      try {
+        const lineups = await storage.getCommunityLineups();
+        setMuralList(lineups);
+      } catch (err) {
+        console.warn('Erro ao carregar mural do Firestore:', err);
+      } finally {
+        setLoadingMural(false);
+      }
     }
 
     loadAdminData();
-  }, [isOpen]);
+  }, [isOpen, currentUser]);
 
-  if (!isOpen) return null;
-
-  const isOwner = authService.isOwner(currentUser);
+  if (!isOpen || !authService.isAdminOrOwner(currentUser)) return null;
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     const updated = await authService.updateUser({ id: userId, role: newRole });
@@ -104,54 +110,39 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const handleDeleteUser = async (userId: string, email: string) => {
     if (email.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
-      alert('O Owner principal não pode ser removido.');
+      setAdminNotice('O Proprietário principal não pode ser removido.');
       return;
     }
-    if (!confirm(`Remover o membro "${email}" do banco de dados?`)) return;
 
     const ok = await authService.deleteUser(userId);
     if (ok) {
       setUsers((prev) => prev.filter((u) => u.id !== userId));
+      setAdminNotice(`Membro ${email} removido do banco de dados Firebase.`);
     }
   };
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);
-    const updated = await authService.updateSiteSettings(settings);
-    setSavingSettings(false);
-    if (updated) {
-      setSettings(updated);
-      onSettingsChanged?.(updated);
-      setSettingsSavedMessage('Configurações salvas e aplicadas em tempo real!');
-      setTimeout(() => setSettingsSavedMessage(''), 3500);
+    try {
+      const updated = await authService.updateSiteSettings(settings);
+      if (updated) {
+        setSettings(updated);
+        onSettingsChanged?.(updated);
+        setSettingsSavedMessage('Configurações salvas e sincronizadas no Firestore em tempo real!');
+        setTimeout(() => setSettingsSavedMessage(''), 3500);
+      }
+    } catch {
+      setAdminNotice('Falha ao salvar configurações no Firestore.');
+    } finally {
+      setSavingSettings(false);
     }
-  };
-
-  const handleAddNewMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEmail.trim()) return;
-
-    const added = await authService.loginWithGoogle(
-      newEmail.trim(),
-      newName.trim() || undefined
-    );
-
-    if (added && newRole !== 'member') {
-      await authService.updateUser({ id: added.id, role: newRole });
-    }
-
-    const all = await authService.getRegisteredUsers();
-    setUsers(all);
-    setNewEmail('');
-    setNewName('');
-    setIsAddMemberOpen(false);
   };
 
   const handleDeleteMuralItem = async (lineupId: string, title: string) => {
-    if (!confirm(`Remover a escalação "${title}" do Mural da Torcida?`)) return;
     const ok = await storage.deleteCommunityLineup(lineupId);
     if (ok) {
       setMuralList((prev) => prev.filter((l) => l.id !== lineupId));
+      setAdminNotice(`Publicação "${title}" removida do Mural da Torcida.`);
     }
   };
 
@@ -244,23 +235,36 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 : 'text-[#8ba091] hover:text-white hover:bg-[#131d16]'
             }`}
           >
-            <span>💾</span>
-            <span>Banco de Dados InterBase</span>
+            <span>🔥</span>
+            <span>Firebase & Sincronização</span>
           </button>
         </div>
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+          {adminNotice && (
+            <div className="mb-4 p-3 bg-[#152419] border border-[#2d5838] rounded-xl text-xs text-[#89eba8] flex items-center justify-between">
+              <span>{adminNotice}</span>
+              <button
+                type="button"
+                onClick={() => setAdminNotice(null)}
+                className="text-gray-400 hover:text-white font-bold px-1.5 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* TAB 1: MEMBERS & PERMISSIONS */}
           {activeTab === 'members' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#213025]">
                 <div>
                   <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                    Controle de Acesso de Membros Cadastrados
+                    Controle de Acesso de Membros (Google OAuth)
                   </h3>
                   <p className="text-xs text-[#8ca092]">
-                    Gerencie quem pode publicar escalações no mural, usar a prancheta ou acessar ferramentas avançadas.
+                    Todo torcedor que entra com sua Conta Google aparece aqui automaticamente para controle de cargo e permissões.
                   </p>
                 </div>
 
@@ -272,13 +276,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     placeholder="Buscar por nome ou e-mail..."
                     className="h-8 px-3 text-xs bg-[#121c15] text-white border border-[#2b3c30] rounded-lg outline-none focus:border-[#43c776] w-48 sm:w-64"
                   />
-                  <button
-                    onClick={() => setIsAddMemberOpen(true)}
-                    className="h-8 px-3 bg-[#1b6b3b] hover:bg-[#23874b] text-white rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow cursor-pointer"
-                  >
-                    <span>＋</span>
-                    <span>Novo Membro</span>
-                  </button>
                 </div>
               </div>
 
@@ -687,10 +684,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <div className="space-y-6 max-w-2xl">
               <div>
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                  Banco de Dados do Servidor (InterBase Engine)
+                  Banco de Dados em Nuvem (Firebase Firestore & Google Auth)
                 </h3>
                 <p className="text-xs text-[#8ca092]">
-                  Status do arquivo permanente de dados e ferramentas de integridade.
+                  Autenticação Google verificada e sincronização em tempo real com o Firestore.
                 </p>
               </div>
 
@@ -698,7 +695,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 <div className="p-4 bg-[#0f1712] border border-[#25362a] rounded-xl text-center">
                   <span className="text-2xl font-black text-white">{users.length}</span>
                   <span className="text-[11px] text-[#8ea295] block mt-1 uppercase font-bold">
-                    Membros Cadastrados
+                    Contas Google Sincronizadas
                   </span>
                 </div>
 
@@ -711,21 +708,24 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
                 <div className="p-4 bg-[#0f1712] border border-[#25362a] rounded-xl text-center">
                   <span className="text-xs px-2 py-1 rounded bg-[#13361a] text-[#55db88] font-black inline-block mt-1">
-                    🟢 ONLINE
+                    🟢 SINCRONIZADO
                   </span>
                   <span className="text-[11px] text-[#8ea295] block mt-2 uppercase font-bold">
-                    Persistência Ativa
+                    Firebase Auth + Firestore
                   </span>
                 </div>
               </div>
 
-              <div className="p-4 bg-[#111a14] border border-[#2a3c2f] rounded-xl space-y-3">
-                <div className="text-xs font-bold text-white flex items-center gap-2">
-                  <span>📁</span>
-                  <span>Arquivo Permanente de Banco de Dados: /data/interbase_database.json</span>
+              <div className="p-4 bg-[#111a14] border border-[#2a3c2f] rounded-xl space-y-2.5 text-xs">
+                <div className="font-bold text-white flex items-center gap-2">
+                  <span>🔥</span>
+                  <span>Projeto Firebase: {FIREBASE_PROJECT_ID}</span>
+                </div>
+                <div className="text-[11px] font-mono text-[#7fe4a1] break-all">
+                  Database ID: {FIRESTORE_DATABASE_ID}
                 </div>
                 <p className="text-xs text-[#82998a] leading-relaxed">
-                  Todos os dados são persistidos de forma segura no servidor do projeto, garantindo que membros, permissões, escalações da torcida e jogadas continuem intactos em qualquer sessão.
+                  O login usa exclusivamente OAuth oficial do Google via Firebase Authentication. Somente a conta autenticada e verificada como <b>{OWNER_EMAIL}</b> recebe privilégios de Administrador Master nas regras de segurança do Firestore.
                 </p>
               </div>
             </div>
@@ -770,87 +770,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         </div>
       )}
 
-      {/* Add New Member Modal */}
-      {isAddMemberOpen && (
-        <div className="fixed inset-0 z-60 bg-black/80 flex items-center justify-center p-4">
-          <form
-            onSubmit={handleAddNewMember}
-            className="w-full max-w-md bg-[#101712] border border-[#3e5345] rounded-xl p-5 shadow-2xl space-y-4"
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-[#25362a]">
-              <h4 className="text-sm font-bold text-white">Cadastrar / Liberar Novo Membro</h4>
-              <button
-                type="button"
-                onClick={() => setIsAddMemberOpen(false)}
-                className="text-gray-400 hover:text-white text-xs"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-bold text-[#8ba092] uppercase mb-1">
-                  E-mail do Membro (Conta Google)
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="usuario@gmail.com"
-                  className="w-full h-8 px-2.5 text-xs bg-[#17221a] text-white border border-[#3a4e40] rounded-lg outline-none focus:border-[#43c776]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-[#8ba092] uppercase mb-1">
-                  Nome ou Apelido no Canal
-                </label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex: Vascaíno Barreira"
-                  className="w-full h-8 px-2.5 text-xs bg-[#17221a] text-white border border-[#3a4e40] rounded-lg outline-none focus:border-[#43c776]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-[#8ba092] uppercase mb-1">
-                  Cargo / Permissão Inicial
-                </label>
-                <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as UserRole)}
-                  className="w-full h-8 px-2 text-xs bg-[#17221a] text-white border border-[#3a4e40] rounded-lg outline-none focus:border-[#43c776]"
-                >
-                  <option value="member">Membro Comum (Mural & Prancheta)</option>
-                  <option value="vip">Membro VIP / Barreira</option>
-                  <option value="moderator">Moderador</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#25362a]">
-              <button
-                type="button"
-                onClick={() => setIsAddMemberOpen(false)}
-                className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition"
-              >
-                Salvar Membro
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 };

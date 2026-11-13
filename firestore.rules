@@ -1,0 +1,267 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable validation & RBAC primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwnerEmail() {
+      return isVerified() && request.auth.token.email.lower() == 'tazmaniacrvg@gmail.com';
+    }
+
+    function isAdmin() {
+      return isOwnerEmail() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['owner', 'admin'] &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active'
+      );
+    }
+
+    function isValidPermissions(perms) {
+      return perms is map &&
+        perms.keys().hasAll(['canPostMural', 'canUseTactics', 'canUseAdvancedTools', 'canModerate']) &&
+        perms.keys().hasOnly(['canPostMural', 'canUseTactics', 'canUseAdvancedTools', 'canModerate']) &&
+        perms.canPostMural is bool &&
+        perms.canUseTactics is bool &&
+        perms.canUseAdvancedTools is bool &&
+        perms.canModerate is bool;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'status', 'permissions', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'name', 'avatar', 'role', 'status', 'permissions', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('avatar' in data) || (data.avatar is string && data.avatar.size() <= 500)) &&
+        data.role in ['owner', 'admin', 'moderator', 'vip', 'member'] &&
+        data.status in ['active', 'pending', 'blocked'] &&
+        isValidPermissions(data.permissions) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll([
+          'muralVisible',
+          'muralPublicPosting',
+          'tacticsVisible',
+          'advancedToolsVisible',
+          'liveStreamsVisible',
+          'kickBannerVisible',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'muralVisible',
+          'muralPublicPosting',
+          'tacticsVisible',
+          'advancedToolsVisible',
+          'liveStreamsVisible',
+          'kickBannerVisible',
+          'updatedAt'
+        ]) &&
+        data.muralVisible is bool &&
+        data.muralPublicPosting is bool &&
+        data.tacticsVisible is bool &&
+        data.advancedToolsVisible is bool &&
+        data.liveStreamsVisible is bool &&
+        data.kickBannerVisible is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCommunityLineup(data) {
+      return data.keys().hasAll(['authorUid', 'author', 'title', 'opponentClub', 'formation', 'likes', 'publishedAt']) &&
+        data.keys().hasOnly([
+          'authorUid',
+          'author',
+          'authorAvatar',
+          'authorRole',
+          'title',
+          'opponentClub',
+          'formation',
+          'players',
+          'imageUrl',
+          'likes',
+          'publishedAt'
+        ]) &&
+        isValidId(data.authorUid) &&
+        data.author is string && data.author.size() >= 1 && data.author.size() <= 120 &&
+        (!('authorAvatar' in data) || (data.authorAvatar is string && data.authorAvatar.size() <= 500)) &&
+        (!('authorRole' in data) || (data.authorRole is string && data.authorRole.size() <= 30)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.opponentClub is string && data.opponentClub.size() <= 100 &&
+        data.formation is string && data.formation.size() <= 30 &&
+        (!('players' in data) || (data.players is list && data.players.size() <= 25 && (data.players.size() == 0 || data.players[0] is map))) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 900000)) &&
+        data.likes is int && data.likes >= 0 &&
+        data.publishedAt is timestamp;
+    }
+
+    function canUserPostMural() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.canPostMural == true;
+    }
+
+    function isValidTacticalDoc(data) {
+      return data.keys().hasAll(['ownerUid', 'kind', 'payload', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'kind', 'payload', 'updatedAt']) &&
+        isValidId(data.ownerUid) &&
+        data.kind in ['lineup', 'play', 'board'] &&
+        data.payload is map &&
+        data.updatedAt is timestamp;
+    }
+
+    // 1. Users collection (strict PII isolation + zero self-escalation)
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isVerified() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUser(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().email.lower() == request.auth.token.email.lower() &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isOwnerEmail()
+            ? (
+                incoming().role == 'owner' &&
+                incoming().status == 'active' &&
+                incoming().permissions.canPostMural == true &&
+                incoming().permissions.canUseTactics == true &&
+                incoming().permissions.canUseAdvancedTools == true &&
+                incoming().permissions.canModerate == true
+              )
+            : (
+                incoming().role == 'member' &&
+                incoming().status == 'active' &&
+                incoming().permissions.canPostMural == true &&
+                incoming().permissions.canUseTactics == true &&
+                incoming().permissions.canUseAdvancedTools == false &&
+                incoming().permissions.canModerate == false
+              )
+        );
+
+      allow update: if isVerified() &&
+        isValidId(userId) &&
+        isValidUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().email.lower() == existing().email.lower() &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action A: Self profile sync (name/avatar/updatedAt only — role/status/permissions immutable)
+          (
+            request.auth.uid == userId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'updatedAt'])
+          ) ||
+          // Action B: Owner/Admin moderating another user's role/status/permissions (cannot demote owner)
+          (
+            isAdmin() &&
+            existing().email.lower() != 'tazmaniacrvg@gmail.com' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'permissions', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() &&
+        isValidId(userId) &&
+        existing().email.lower() != 'tazmaniacrvg@gmail.com';
+
+      // Subcollection: Private user tactical saves (Master Gate checking parent ownership)
+      match /tactical_data/{docId} {
+        allow get: if isVerified() && isValidId(userId) && isValidId(docId) && request.auth.uid == userId;
+        allow list: if isVerified() && resource.data.ownerUid == request.auth.uid;
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          request.auth.uid == userId &&
+          isValidTacticalDoc(incoming()) &&
+          incoming().ownerUid == request.auth.uid &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          request.auth.uid == userId &&
+          isValidTacticalDoc(incoming()) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().kind == existing().kind &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'updatedAt']);
+        allow delete: if isVerified() && isValidId(userId) && isValidId(docId) && request.auth.uid == userId;
+      }
+    }
+
+    // 2. Site Settings collection (settings/site)
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'site';
+      allow create, update: if isAdmin() &&
+        isValidId(settingId) &&
+        settingId == 'site' &&
+        isValidSiteSettings(incoming()) &&
+        incoming().updatedAt == request.time;
+    }
+
+    // 3. Community Lineups ("Mural da Torcida" - no PII stored)
+    match /community_lineups/{lineupId} {
+      allow get: if isValidId(lineupId);
+      allow list: if true;
+
+      allow create: if isVerified() &&
+        isValidId(lineupId) &&
+        isValidCommunityLineup(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().likes == 0 &&
+        incoming().publishedAt == request.time &&
+        (isAdmin() || canUserPostMural());
+
+      allow update: if isVerified() &&
+        isValidId(lineupId) &&
+        isValidCommunityLineup(incoming()) &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().publishedAt == existing().publishedAt &&
+        (
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['likes']) &&
+            incoming().likes == existing().likes + 1
+          ) ||
+          isAdmin()
+        );
+
+      allow delete: if isVerified() &&
+        isValidId(lineupId) &&
+        (isAdmin() || existing().authorUid == request.auth.uid);
+    }
+
+    // Connection test doc (read-only ping)
+    match /test/connection {
+      allow get: if true;
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "User": {
+      "title": "App User",
+      "description": "Authenticated user account and RBAC permissions synchronized with Google Sign-In.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication UID.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified Google account email.",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name from Google account.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Profile photo URL.",
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "admin", "moderator", "vip", "member"],
+          "description": "User authorization role."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "pending", "blocked"],
+          "description": "Account moderation status."
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Fine-grained feature permissions."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["uid", "email", "name", "role", "status", "permissions", "createdAt", "updatedAt"]
+    },
+    "SiteSettings": {
+      "title": "Site Settings",
+      "description": "Global portal feature flags managed by the administrator.",
+      "type": "object",
+      "properties": {
+        "muralVisible": { "type": "boolean" },
+        "muralPublicPosting": { "type": "boolean" },
+        "tacticsVisible": { "type": "boolean" },
+        "advancedToolsVisible": { "type": "boolean" },
+        "liveStreamsVisible": { "type": "boolean" },
+        "kickBannerVisible": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "muralVisible",
+        "muralPublicPosting",
+        "tacticsVisible",
+        "advancedToolsVisible",
+        "liveStreamsVisible",
+        "kickBannerVisible",
+        "updatedAt"
+      ]
+    },
+    "CommunityLineup": {
+      "title": "Community Lineup",
+      "description": "Public tactical lineup snapshot posted to Mural da Torcida.",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "author": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "authorAvatar": { "type": "string", "maxLength": 500 },
+        "authorRole": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "opponentClub": { "type": "string", "maxLength": 100 },
+        "formation": { "type": "string", "maxLength": 30 },
+        "players": { "type": "array" },
+        "imageUrl": { "type": "string", "maxLength": 900000 },
+        "likes": { "type": "number" },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorUid", "author", "title", "opponentClub", "formation", "likes", "publishedAt"]
+    },
+    "TacticalBoardDoc": {
+      "title": "User Tactical Data",
+      "description": "Private saved tactical board, play, or lineup state owned by the signed-in user.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["lineup", "play", "board"]
+        },
+        "payload": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "kind", "payload", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles, roles, and permissions keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/tactical_data/{docId}": {
+      "schema": { "$ref": "#/entities/TacticalBoardDoc" },
+      "description": "Private saved tactical lineups, plays, and boards per user."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SiteSettings" },
+      "description": "Global site visibility configuration document."
+    },
+    "/community_lineups/{lineupId}": {
+      "schema": { "$ref": "#/entities/CommunityLineup" },
+      "description": "Fan-published tactical lineups in Mural da Torcida."
+    }
+  }
+}

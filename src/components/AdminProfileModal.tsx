@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppUser, OWNER_EMAIL } from '../data/auth';
+import { AppUser, authService } from '../data/auth';
 
 interface AdminProfileModalProps {
   isOpen: boolean;
@@ -20,9 +20,7 @@ export const AdminProfileModal: React.FC<AdminProfileModalProps> = ({
 }) => {
   if (!isOpen || !currentUser) return null;
 
-  const isOwner =
-    currentUser.email?.toLowerCase() === OWNER_EMAIL.toLowerCase() ||
-    currentUser.role === 'owner';
+  const isOwner = authService.isOwner(currentUser);
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">

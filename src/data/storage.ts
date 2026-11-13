@@ -1,4 +1,19 @@
 import { normName, TacticalPlay, BoardMeta } from '../tactics/tacticsLogic';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc
+} from 'firebase/firestore';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
 
 export interface FieldTokenData {
   id: string;
@@ -63,8 +78,8 @@ export interface SavedBoard {
 
 export interface CommunityLineup {
   id: string;
+  authorUid?: string;
   author: string;
-  authorEmail?: string;
   authorAvatar?: string;
   authorRole?: string;
   title: string;
@@ -181,14 +196,21 @@ class StorageManager {
       localStorage.setItem('pv_last_lineup_v50', JSON.stringify(snapshot));
     } catch {}
 
-    // 3. Optional sync to backend API
-    try {
-      fetch('/api/interbase/lineup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(snapshot)
-      }).catch(() => {});
-    } catch {}
+    // 3. Cloud sync to user's private Firestore subcollection when signed in
+    const uid = auth.currentUser?.uid;
+    if (uid && auth.currentUser?.emailVerified) {
+      const path = `users/${uid}/tactical_data/lineup_last`;
+      try {
+        await setDoc(doc(db, 'users', uid, 'tactical_data', 'lineup_last'), {
+          ownerUid: uid,
+          kind: 'lineup',
+          payload: JSON.parse(JSON.stringify(snapshot)),
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.warn(`Firestore sync warning at ${path}:`, err);
+      }
+    }
   }
 
   async loadLastLineup(): Promise<LineupSnapshot | null> {
@@ -236,8 +258,8 @@ class StorageManager {
     };
 
     try {
-      const db = await this.openDB();
-      const tx = db.transaction('plays', 'readwrite');
+      const idb = await this.openDB();
+      const tx = idb.transaction('plays', 'readwrite');
       const store = tx.objectStore('plays');
 
       const dataToSave: any = { ...playData };
@@ -247,12 +269,16 @@ class StorageManager {
         const req = store.put(dataToSave);
         req.onsuccess = () => {
           const id = req.result as number;
-          // Sync with backend API
-          fetch('/api/interbase/plays', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...dataToSave, id })
-          }).catch(() => {});
+          const uid = auth.currentUser?.uid;
+          if (uid && auth.currentUser?.emailVerified) {
+            const docId = `play_${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            setDoc(doc(db, 'users', uid, 'tactical_data', docId), {
+              ownerUid: uid,
+              kind: 'play',
+              payload: JSON.parse(JSON.stringify({ ...dataToSave, id })),
+              updatedAt: serverTimestamp()
+            }).catch((err) => console.warn('Firestore play sync warning:', err));
+          }
           resolve(id);
         };
         req.onerror = () => reject(req.error);
@@ -264,10 +290,14 @@ class StorageManager {
 
   async deletePlay(id: number | string): Promise<void> {
     try {
-      const db = await this.openDB();
-      const tx = db.transaction('plays', 'readwrite');
+      const dbIdb = await this.openDB();
+      const tx = dbIdb.transaction('plays', 'readwrite');
       tx.objectStore('plays').delete(id as any);
-      fetch(`/api/interbase/plays/${id}`, { method: 'DELETE' }).catch(() => {});
+      const uid = auth.currentUser?.uid;
+      if (uid && auth.currentUser?.emailVerified) {
+        const docId = `play_${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        deleteDoc(doc(db, 'users', uid, 'tactical_data', docId)).catch(() => {});
+      }
     } catch (e) {
       console.warn('Could not delete play', e);
     }
@@ -289,8 +319,8 @@ class StorageManager {
 
   async saveNamedBoard(board: SavedBoard): Promise<number | string> {
     try {
-      const db = await this.openDB();
-      const tx = db.transaction('boards', 'readwrite');
+      const idb = await this.openDB();
+      const tx = idb.transaction('boards', 'readwrite');
       const store = tx.objectStore('boards');
       const dataToSave: any = { ...board, savedAt: new Date().toISOString() };
       if (!dataToSave.id) delete dataToSave.id;
@@ -299,11 +329,16 @@ class StorageManager {
         const req = store.put(dataToSave);
         req.onsuccess = () => {
           const id = req.result as number;
-          fetch('/api/interbase/boards', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...dataToSave, id })
-          }).catch(() => {});
+          const uid = auth.currentUser?.uid;
+          if (uid && auth.currentUser?.emailVerified) {
+            const docId = `board_${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            setDoc(doc(db, 'users', uid, 'tactical_data', docId), {
+              ownerUid: uid,
+              kind: 'board',
+              payload: JSON.parse(JSON.stringify({ ...dataToSave, id })),
+              updatedAt: serverTimestamp()
+            }).catch((err) => console.warn('Firestore board sync warning:', err));
+          }
           resolve(id);
         };
         req.onerror = () => reject(req.error);
@@ -315,10 +350,14 @@ class StorageManager {
 
   async deleteBoard(id: number | string): Promise<void> {
     try {
-      const db = await this.openDB();
-      const tx = db.transaction('boards', 'readwrite');
+      const dbIdb = await this.openDB();
+      const tx = dbIdb.transaction('boards', 'readwrite');
       tx.objectStore('boards').delete(id as any);
-      fetch(`/api/interbase/boards/${id}`, { method: 'DELETE' }).catch(() => {});
+      const uid = auth.currentUser?.uid;
+      if (uid && auth.currentUser?.emailVerified) {
+        const docId = `board_${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        deleteDoc(doc(db, 'users', uid, 'tactical_data', docId)).catch(() => {});
+      }
     } catch (e) {
       console.warn('Could not delete board', e);
     }
@@ -366,60 +405,101 @@ class StorageManager {
   }
 
   async getCommunityLineups(): Promise<CommunityLineup[]> {
+    const path = 'community_lineups';
     try {
-      const res = await fetch('/api/community/lineups');
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (e) {
-      console.warn('Could not load community lineups', e);
+      const q = query(collection(db, path), orderBy('publishedAt', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => {
+        const data = d.data() as Record<string, any>;
+        const publishedAt =
+          data.publishedAt instanceof Timestamp
+            ? data.publishedAt.toDate().toISOString()
+            : String(data.publishedAt || new Date().toISOString());
+        return {
+          id: d.id,
+          authorUid: String(data.authorUid || ''),
+          author: String(data.author || 'Torcedor'),
+          authorAvatar: String(data.authorAvatar || ''),
+          authorRole: String(data.authorRole || 'member'),
+          title: String(data.title || 'Escalação'),
+          opponentClub: String(data.opponentClub || 'Geral'),
+          formation: String(data.formation || '4-3-3'),
+          players: Array.isArray(data.players) ? data.players : [],
+          imageUrl: String(data.imageUrl || ''),
+          likes: Number(data.likes || 0),
+          publishedAt
+        };
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
     }
-    return [];
   }
 
   async publishCommunityLineup(
     lineup: Omit<CommunityLineup, 'id' | 'likes' | 'publishedAt'>
   ): Promise<CommunityLineup | null> {
-    try {
-      const res = await fetch('/api/community/lineups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(lineup)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.lineup;
-      }
-    } catch (e) {
-      console.warn('Could not publish lineup', e);
+    const uid = auth.currentUser?.uid;
+    if (!uid || !auth.currentUser?.emailVerified) {
+      throw new Error('Faça login com uma Conta Google verificada para publicar.');
     }
-    return null;
+
+    const lineupId = `com_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const path = `community_lineups/${lineupId}`;
+    const sanitizedPlayers = (lineup.players || []).slice(0, 25).map((p) => ({
+      name: String(p.name || '').slice(0, 80),
+      role: String(p.role || '').slice(0, 20),
+      x: Number(p.x || 0),
+      y: Number(p.y || 0),
+      photo: String(p.photo || '').slice(0, 500)
+    }));
+
+    const docData = {
+      authorUid: uid,
+      author: String(lineup.author || auth.currentUser.displayName || 'Torcedor').slice(0, 120),
+      authorAvatar: String(lineup.authorAvatar || auth.currentUser.photoURL || '').slice(0, 500),
+      authorRole: String(lineup.authorRole || 'member').slice(0, 30),
+      title: String(lineup.title || 'Escalação').slice(0, 160),
+      opponentClub: String(lineup.opponentClub || 'Geral').slice(0, 100),
+      formation: String(lineup.formation || '4-3-3').slice(0, 30),
+      players: sanitizedPlayers,
+      imageUrl: String(lineup.imageUrl || '').slice(0, 900000),
+      likes: 0,
+      publishedAt: serverTimestamp()
+    };
+
+    try {
+      await setDoc(doc(db, 'community_lineups', lineupId), docData);
+      return {
+        id: lineupId,
+        ...docData,
+        publishedAt: new Date().toISOString()
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, path);
+    }
   }
 
   async likeCommunityLineup(id: string): Promise<number | null> {
+    const path = `community_lineups/${id}`;
     try {
-      const res = await fetch('/api/community/like', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
+      const ref = doc(db, 'community_lineups', id);
+      await updateDoc(ref, {
+        likes: increment(1)
       });
-      if (res.ok) {
-        const data = await res.json();
-        return data.likes;
-      }
-    } catch {}
-    return null;
+      const updated = await getDoc(ref);
+      return updated.exists() ? Number(updated.data().likes || 0) : null;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
   }
 
   async deleteCommunityLineup(id: string): Promise<boolean> {
+    const path = `community_lineups/${id}`;
     try {
-      const res = await fetch(`/api/community/lineups?id=${id}`, {
-        method: 'DELETE'
-      });
-      return res.ok;
-    } catch (e) {
-      console.warn('Could not delete lineup', e);
-      return false;
+      await deleteDoc(doc(db, 'community_lineups', id));
+      return true;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
     }
   }
 }
