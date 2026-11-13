@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   AppUser,
   buildDefaultPermissionsForRole,
+  canAccessTacticsBoard,
   isAdminOrOwnerUser,
   isOwnerUser,
   isVerifiedOwnerEmail,
@@ -85,4 +86,63 @@ test('routes any other Google email to standard member role without admin access
   assert.equal(member.permissions.canUseTactics, true);
   assert.equal(member.permissions.canUseAdvancedTools, false);
   assert.equal(member.permissions.canModerate, false);
+});
+
+test('blocks Prancheta access unless user is logged in with a verified Google account', () => {
+  assert.deepEqual(canAccessTacticsBoard(null, true), {
+    allowed: false,
+    reason: 'unauthenticated'
+  });
+
+  const unverified: AppUser = {
+    id: 'uid_unverified',
+    email: 'alguem@gmail.com',
+    emailVerified: false,
+    name: 'Alguém',
+    avatar: '',
+    role: 'member',
+    status: 'active',
+    permissions: buildDefaultPermissionsForRole('member'),
+    createdAt: new Date().toISOString()
+  };
+  assert.deepEqual(canAccessTacticsBoard(unverified, true), {
+    allowed: false,
+    reason: 'unauthenticated'
+  });
+
+  const blocked: AppUser = { ...unverified, emailVerified: true, status: 'blocked' };
+  assert.deepEqual(canAccessTacticsBoard(blocked, true), {
+    allowed: false,
+    reason: 'blocked'
+  });
+
+  const restrictedMember: AppUser = {
+    ...unverified,
+    emailVerified: true,
+    permissions: { ...buildDefaultPermissionsForRole('member'), canUseTactics: false }
+  };
+  assert.deepEqual(canAccessTacticsBoard(restrictedMember, true), {
+    allowed: false,
+    reason: 'permission_denied'
+  });
+
+  const activeMember: AppUser = { ...unverified, emailVerified: true };
+  assert.deepEqual(canAccessTacticsBoard(activeMember, false), {
+    allowed: false,
+    reason: 'disabled_by_admin'
+  });
+  assert.deepEqual(canAccessTacticsBoard(activeMember, true), { allowed: true });
+
+  const owner: AppUser = {
+    id: 'uid_owner',
+    email: OWNER_EMAIL,
+    emailVerified: true,
+    name: 'Tazmania CRVG',
+    avatar: '',
+    role: 'owner',
+    status: 'active',
+    permissions: buildDefaultPermissionsForRole('owner'),
+    createdAt: new Date().toISOString()
+  };
+  assert.deepEqual(canAccessTacticsBoard(owner, false), { allowed: true });
 });

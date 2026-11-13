@@ -36,6 +36,7 @@ export default function App() {
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [isCapturingMuralPhoto, setIsCapturingMuralPhoto] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
+  const pendingOpenTacticsRef = useRef(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'warn' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -43,6 +44,9 @@ export default function App() {
       setToast((prev) => (prev?.message === message ? null : prev));
     }, 4500);
   }, []);
+
+  const tacticsAccess = authService.canAccessTactics(currentUser, siteSettings.tacticsVisible);
+  const canRenderTactics = tacticsAccess.allowed;
 
   const handleGoogleSignIn = useCallback(async () => {
     if (isSigningIn) return;
@@ -58,7 +62,22 @@ export default function App() {
           : `Bem-vindo, ${user.name}! Conectado com sua Conta Google.`,
         'success'
       );
+
+      if (pendingOpenTacticsRef.current) {
+        pendingOpenTacticsRef.current = false;
+        const access = authService.canAccessTactics(user, siteSettings.tacticsVisible);
+        if (access.allowed) {
+          setCurrentView('tactics');
+        } else if (access.reason === 'blocked') {
+          showToast('Sua conta está suspensa e não pode acessar a Prancheta.', 'error');
+        } else if (access.reason === 'permission_denied') {
+          showToast('Seu acesso à Prancheta foi restringido pelo administrador.', 'warn');
+        } else if (access.reason === 'disabled_by_admin') {
+          showToast('A Prancheta Tática está temporariamente desativada pela administração.', 'info');
+        }
+      }
     } catch (err: any) {
+      pendingOpenTacticsRef.current = false;
       const code = err?.code || '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         showToast('Login com o Google cancelado.', 'info');
@@ -73,7 +92,41 @@ export default function App() {
     } finally {
       setIsSigningIn(false);
     }
-  }, [isSigningIn, showToast]);
+  }, [isSigningIn, showToast, siteSettings.tacticsVisible]);
+
+  const handleOpenTactics = useCallback(() => {
+    const access = authService.canAccessTactics(currentUser, siteSettings.tacticsVisible);
+    if (access.allowed) {
+      pendingOpenTacticsRef.current = false;
+      setCurrentView('tactics');
+      return;
+    }
+
+    if (access.reason === 'unauthenticated') {
+      pendingOpenTacticsRef.current = true;
+      showToast('Faça login com sua Conta Google para liberar a Prancheta Tática PRO.', 'warn');
+      void handleGoogleSignIn();
+      return;
+    }
+
+    if (access.reason === 'blocked') {
+      showToast('Esta conta está suspensa pela administração do Fala Vascão.', 'error');
+    } else if (access.reason === 'permission_denied') {
+      showToast('Seu perfil não possui permissão para acessar a Prancheta no momento.', 'warn');
+    } else {
+      showToast('A Prancheta Tática está temporariamente desativada pela administração.', 'info');
+    }
+  }, [currentUser, handleGoogleSignIn, showToast, siteSettings.tacticsVisible]);
+
+  const handleLogout = useCallback(async () => {
+    pendingOpenTacticsRef.current = false;
+    await authService.logout();
+    setCurrentUser(null);
+    setCurrentView('portal');
+    setIsAdminModalOpen(false);
+    setIsAdminProfileOpen(false);
+    showToast('Você desconectou da sua conta Google.', 'info');
+  }, [showToast]);
 
   // State (always backed by bd.xlsx without temporary overrides)
   const [squad, setSquad] = useState<RosterPlayerItem[]>(INITIAL_SQUAD);
@@ -249,6 +302,8 @@ export default function App() {
       setCurrentUser(user);
       if (user) {
         setPublishAuthor(user.name);
+      } else {
+        setCurrentView('portal');
       }
       if (errorMsg) {
         showToast(errorMsg, 'error');
@@ -1007,10 +1062,21 @@ export default function App() {
     tokens.filter((t) => t.kind === 'opp' && t.playerId).map((t) => t.playerId!)
   );
 
+  const effectivePresentationMode = isPresentationMode && canRenderTactics;
+
+  useEffect(() => {
+    if (!canRenderTactics) {
+      if (currentView === 'tactics') setCurrentView('portal');
+      if (isPresentationMode) setIsPresentationMode(false);
+      if (isPlayEditorOpen) setIsPlayEditorOpen(false);
+      if (isExtrasOpen) setIsExtrasOpen(false);
+    }
+  }, [canRenderTactics, currentView, isPresentationMode, isPlayEditorOpen, isExtrasOpen]);
+
   return (
     <div
       className={`w-screen h-screen overflow-hidden bg-[#080c09] text-[#f4f4f4] flex flex-col font-sans ${
-        isPresentationMode ? 'p-0' : 'p-2'
+        effectivePresentationMode ? 'p-0' : 'p-2'
       }`}
     >
       {/* Hidden file input for custom vector ball */}
@@ -1023,7 +1089,7 @@ export default function App() {
       />
 
       {/* Top Application Header Bar */}
-      {!isPresentationMode && !isTopBarCollapsed && (
+      {!effectivePresentationMode && !isTopBarCollapsed && (
         <header className="h-9 px-2.5 bg-[#0d1410] border border-[#233026] flex items-center justify-between gap-2 shrink-0 mb-1.5 rounded-lg text-xs shadow-md overflow-hidden">
           {/* Brand */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1053,20 +1119,27 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setCurrentView('tactics')}
+              onClick={handleOpenTactics}
+              title={
+                canRenderTactics
+                  ? 'Abrir Prancheta Tática PRO'
+                  : 'Faça login com sua Conta Google para liberar a Prancheta PRO'
+              }
               className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
-                currentView === 'tactics'
+                currentView === 'tactics' && canRenderTactics
                   ? 'bg-[#1b6b3b] text-white shadow-md'
-                  : 'text-[#8ea295] hover:text-white'
+                  : canRenderTactics
+                  ? 'text-[#8ea295] hover:text-white'
+                  : 'text-amber-300/90 hover:text-white'
               }`}
             >
-              <span>⚽</span>
+              <span>{canRenderTactics ? '⚽' : '🔒'}</span>
               <span>Prancheta PRO</span>
             </button>
           </div>
 
           {/* Tactics Quick Pop-ups & Viewport Controls (moved from RosterPanel to Top Bar) */}
-          {currentView === 'tactics' && (
+          {currentView === 'tactics' && canRenderTactics && (
             <div className="flex items-center gap-1 bg-[#131c15] p-0.5 rounded-md border border-[#253528] shrink-0">
               <button
                 type="button"
@@ -1158,13 +1231,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
-                    await authService.logout();
-                    setCurrentUser(null);
-                    setIsAdminModalOpen(false);
-                    setIsAdminProfileOpen(false);
-                    showToast('Você desconectou da sua conta Google.', 'info');
-                  }}
+                  onClick={handleLogout}
                   className="text-gray-400 hover:text-[#ff8e99] text-[9.5px] px-0.5 cursor-pointer"
                   title="Sair da Conta Google"
                 >
@@ -1228,7 +1295,7 @@ export default function App() {
       )}
 
       {/* Floating Restore Button for Top Header Bar */}
-      {isTopBarCollapsed && !isPresentationMode && (
+      {isTopBarCollapsed && !effectivePresentationMode && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40">
           <button
             type="button"
@@ -1246,7 +1313,7 @@ export default function App() {
       )}
 
       {/* Floating Restore Button for Bottom Status Bar */}
-      {isBottomBarCollapsed && !isPresentationMode && currentView === 'tactics' && (
+      {isBottomBarCollapsed && !effectivePresentationMode && currentView === 'tactics' && canRenderTactics && (
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-40">
           <button
             type="button"
@@ -1263,19 +1330,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Workspace Layout */}
-      {currentView === 'portal' && !isPresentationMode ? (
+      {/* Main Workspace Layout — Prancheta Tática strictly gated by verified Google login */}
+      {!(currentView === 'tactics' && canRenderTactics) ? (
         <main className="flex-1 min-h-0 w-full overflow-hidden rounded-lg border border-[#243328] bg-[#0c120e]">
           <PortalView
-            onOpenTactics={() => setCurrentView('tactics')}
+            onOpenTactics={handleOpenTactics}
             currentUser={currentUser}
             onOpenLogin={handleGoogleSignIn}
-            onLogout={async () => {
-              await authService.logout();
-              setCurrentUser(null);
-              setIsAdminModalOpen(false);
-              setIsAdminProfileOpen(false);
-            }}
+            onLogout={handleLogout}
             onOpenAdminPanel={() => {
               if (authService.isAdminOrOwner(currentUser)) {
                 setIsAdminModalOpen(true);
@@ -1288,11 +1350,11 @@ export default function App() {
       ) : (
         <main
           className={`flex-1 flex gap-2 min-h-0 w-full overflow-hidden ${
-            isPresentationMode ? 'p-0' : ''
+            effectivePresentationMode ? 'p-0' : ''
           }`}
         >
         {/* Left: Vasco Squad Panel OR Collapsed Vertical Strip */}
-        {!isPresentationMode && (
+        {!effectivePresentationMode && (
           !isLeftPanelCollapsed ? (
             <RosterPanel
               squad={squad}
@@ -1654,13 +1716,10 @@ export default function App() {
             setIsAdminModalOpen(true);
           }
         }}
-        onLogout={async () => {
-          await authService.logout();
-          setCurrentUser(null);
-          setIsAdminModalOpen(false);
-          showToast('Você desconectou da sua conta Google.', 'info');
-        }}
-        onGoToTactics={currentView === 'portal' ? () => setCurrentView('tactics') : undefined}
+        onLogout={handleLogout}
+        onGoToTactics={
+          currentView === 'portal' && canRenderTactics ? handleOpenTactics : undefined
+        }
       />
 
       {/* Player Detail & Tactical Report Modal (bd.xlsx) */}

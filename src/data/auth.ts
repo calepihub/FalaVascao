@@ -26,6 +26,7 @@ import {
 import {
   AppUser,
   buildDefaultPermissionsForRole,
+  canAccessTacticsBoard,
   DEFAULT_SITE_SETTINGS,
   isAdminOrOwnerUser,
   isOwnerUser,
@@ -33,6 +34,8 @@ import {
   OWNER_EMAIL,
   resolveInitialRoleForGoogleEmail,
   SiteSettings,
+  TacticsAccessDenialReason,
+  TacticsAccessResult,
   UserPermissions,
   UserRole,
   UserStatus
@@ -41,6 +44,8 @@ import {
 export type {
   AppUser,
   SiteSettings,
+  TacticsAccessDenialReason,
+  TacticsAccessResult,
   UserPermissions,
   UserRole,
   UserStatus
@@ -49,6 +54,7 @@ export {
   DEFAULT_SITE_SETTINGS,
   OWNER_EMAIL,
   buildDefaultPermissionsForRole,
+  canAccessTacticsBoard,
   isAdminOrOwnerUser,
   isOwnerUser,
   isVerifiedOwnerEmail,
@@ -219,6 +225,10 @@ export const authService = {
 
   isAdminOrOwner(user?: AppUser | null): boolean {
     return isAdminOrOwnerUser(user);
+  },
+
+  canAccessTactics(user?: AppUser | null, tacticsVisible = true): TacticsAccessResult {
+    return canAccessTacticsBoard(user, tacticsVisible);
   },
 
   onAuthChange(

@@ -345,10 +345,14 @@ export const PortalView: React.FC<PortalViewProps> = ({
                   onClick={onOpenTactics}
                   className="px-6 py-3.5 bg-gradient-to-r from-[#d62839] to-[#9e1b29] hover:from-[#ff384d] hover:to-[#b81d2e] text-white rounded-xl font-black text-sm md:text-base tracking-wider shadow-[0_0_20px_rgba(214,40,57,0.5)] flex items-center gap-2.5 transition active:scale-95 cursor-pointer border border-[#ff6675]"
                 >
-                  <span className="text-xl">⚽</span>
+                  <span className="text-xl">{currentUser ? '⚽' : '🔒'}</span>
                   <span>ABRIR PRANCHETA TÁTICA</span>
                 </button>
-                <span className="text-[11px] text-[#86998d]">Ferramenta oficial de análises e jogadas</span>
+                <span className="text-[11px] text-[#86998d]">
+                  {currentUser
+                    ? 'Ferramenta oficial de análises e jogadas'
+                    : '🔒 Faça login com sua Conta Google para acessar a prancheta'}
+                </span>
               </div>
             )}
           </div>
@@ -381,7 +385,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
                     onClick={onOpenTactics}
                     className="px-2.5 py-1 bg-[#192b1e] hover:bg-[#253f2c] border border-[#3c6b48] text-[#8ee3a4] rounded font-bold transition cursor-pointer"
                   >
-                    Abrir Prancheta ⚽
+                    {currentUser ? 'Abrir Prancheta ⚽' : '🔒 Entrar p/ Prancheta'}
                   </button>
                 )}
               </div>
@@ -443,13 +447,17 @@ export const PortalView: React.FC<PortalViewProps> = ({
                   <div className="p-3 bg-gradient-to-r from-[#172b1d] to-[#122116] border border-[#33593b] rounded-xl flex items-center justify-between">
                     <div>
                       <div className="text-xs font-black text-white">Prancheta Vascaina PRO</div>
-                      <div className="text-[10px] text-[#86a892]">Simule as jogadas comentadas na live</div>
+                      <div className="text-[10px] text-[#86a892]">
+                        {currentUser
+                          ? 'Simule as jogadas comentadas na live'
+                          : 'Acesso exclusivo via login Google'}
+                      </div>
                     </div>
                     <button
                       onClick={onOpenTactics}
                       className="px-3 py-1.5 bg-[#1b6b3b] hover:bg-[#23874b] text-white text-xs font-black rounded-lg transition shadow cursor-pointer"
                     >
-                      Desenhar
+                      {currentUser ? 'Desenhar' : '🔒 Entrar'}
                     </button>
                   </div>
                 )}
@@ -722,7 +730,9 @@ export const PortalView: React.FC<PortalViewProps> = ({
                     onClick={onOpenTactics}
                     className="mt-2 px-4 py-2 bg-[#1b6b3b] hover:bg-[#23874b] text-white rounded-lg text-xs font-black transition cursor-pointer"
                   >
-                    Abrir Prancheta e Montar Minha Escalação
+                    {currentUser
+                      ? 'Abrir Prancheta e Montar Minha Escalação'
+                      : '🔒 Entrar com Google e Montar Minha Escalação'}
                   </button>
                 )}
               </div>
@@ -913,7 +923,7 @@ export const PortalView: React.FC<PortalViewProps> = ({
             <>
               <span>•</span>
               <button onClick={onOpenTactics} className="hover:text-white cursor-pointer font-bold text-[#55db88]">
-                Prancheta Tática PRO
+                {currentUser ? 'Prancheta Tática PRO' : '🔒 Prancheta Tática PRO (Login Google)'}
               </button>
             </>
           )}

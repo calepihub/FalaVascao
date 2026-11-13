@@ -98,3 +98,36 @@ export function resolveInitialRoleForGoogleEmail(
 ): UserRole {
   return isVerifiedOwnerEmail(email, emailVerified) ? 'owner' : 'member';
 }
+
+export type TacticsAccessDenialReason =
+  | 'unauthenticated'
+  | 'blocked'
+  | 'disabled_by_admin'
+  | 'permission_denied';
+
+export interface TacticsAccessResult {
+  allowed: boolean;
+  reason?: TacticsAccessDenialReason;
+}
+
+export function canAccessTacticsBoard(
+  user?: AppUser | null,
+  tacticsVisible = true
+): TacticsAccessResult {
+  if (!user || user.emailVerified === false) {
+    return { allowed: false, reason: 'unauthenticated' };
+  }
+  if (isOwnerUser(user)) {
+    return { allowed: true };
+  }
+  if (user.status === 'blocked') {
+    return { allowed: false, reason: 'blocked' };
+  }
+  if (!tacticsVisible && !isAdminOrOwnerUser(user)) {
+    return { allowed: false, reason: 'disabled_by_admin' };
+  }
+  if (user.permissions && user.permissions.canUseTactics === false && !isAdminOrOwnerUser(user)) {
+    return { allowed: false, reason: 'permission_denied' };
+  }
+  return { allowed: true };
+}
