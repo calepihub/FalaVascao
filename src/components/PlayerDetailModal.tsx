@@ -33,6 +33,18 @@ export const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({
     }
   }, [player]);
 
+  // Close modal with Escape key
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !player || player.kind === 'ball') return null;
 
   const clubName = player.club || (player.kind === 'vasco' ? 'CR Vasco da Gama' : 'Clube Adversário');

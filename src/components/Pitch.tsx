@@ -57,6 +57,16 @@ export const Pitch: React.FC<PitchProps> = ({
   const dragStateRef = useRef<DragState | null>(null);
 
   const [highlightedTokenId, setHighlightedTokenId] = useState<string | null>(null);
+  const [failedPhotoIds, setFailedPhotoIds] = useState<Set<string>>(new Set());
+
+  const markPhotoFailed = useCallback((id: string) => {
+    setFailedPhotoIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
 
   // Method to highlight a token when user tries to duplicate it
   useEffect(() => {
@@ -73,10 +83,6 @@ export const Pitch: React.FC<PitchProps> = ({
     token: FieldTokenData
   ) => {
     if (isAnimating) return;
-    if (token.locked) {
-      onStatusMessage(`Peça bloqueada: ${token.name || token.num || 'Item'}`);
-      return;
-    }
     if (tool !== 'move' || e.button !== 0) return;
 
     e.preventDefault();
@@ -103,6 +109,10 @@ export const Pitch: React.FC<PitchProps> = ({
   const handlePointerMoveToken = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragStateRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
+
+    if (drag.token.locked) {
+      return;
+    }
 
     const pitch = pitchRef.current;
     if (!pitch) return;
@@ -345,14 +355,12 @@ export const Pitch: React.FC<PitchProps> = ({
                   onDoubleClick={(e) => handleTokenDblClick(token, e)}
                   title={token.name ? `${token.name} (${token.role || 'Adversário'}) - Clique para detalhes` : `Adversário #${token.num}`}
                 >
-                  {token.photo ? (
+                  {token.photo && !failedPhotoIds.has(token.id) ? (
                     <img
                       src={token.photo}
                       alt={token.name || 'Adversário'}
                       className="w-full h-full object-cover object-top rounded-full pointer-events-none select-none"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }}
+                      onError={() => markPhotoFailed(token.id)}
                     />
                   ) : (
                     <span>{token.num || oppInitials}</span>
@@ -399,15 +407,12 @@ export const Pitch: React.FC<PitchProps> = ({
                 onDoubleClick={(e) => handleTokenDblClick(token, e)}
                 title={`${token.name} (${token.role})`}
               >
-                {token.photo ? (
+                {token.photo && !failedPhotoIds.has(token.id) ? (
                   <img
                     src={token.photo}
                     alt={token.name}
                     className="w-full h-full object-cover object-top rounded-full pointer-events-none select-none"
-                    onError={(e) => {
-                      // Fallback to initials if photo fails to load
-                      (e.currentTarget as HTMLElement).style.display = 'none';
-                    }}
+                    onError={() => markPhotoFailed(token.id)}
                   />
                 ) : (
                   <span className="text-[13px] font-black tracking-wider">{initials}</span>
