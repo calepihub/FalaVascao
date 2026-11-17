@@ -32,6 +32,8 @@ export interface FieldTokenData {
   marketValue?: string;
   profileUrl?: string;
   comment?: string;
+  isSpeculated?: boolean;
+  originClub?: string;
   x: number; // 0 to 1 relative to pitch
   y: number; // 0 to 1 relative to pitch
   locked?: boolean;

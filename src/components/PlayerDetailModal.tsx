@@ -159,10 +159,15 @@ export const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({
               <p className="text-[11px] text-[#8aa091] font-semibold mt-0.5 truncate">
                 {player.rawPosition || player.role || 'Posição em campo'}
               </p>
-              <div className="flex items-center gap-2 mt-1 text-[9.5px] text-[#6d8274]">
+              <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[9.5px] text-[#6d8274]">
                 <span>{clubName}</span>
                 <span>•</span>
                 <span>Temporada 2026</span>
+                {player.isSpeculated && (
+                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-black">
+                    🔮 Especulado{player.originClub ? ` • ex-${player.originClub}` : ''}
+                  </span>
+                )}
               </div>
             </div>
           </div>

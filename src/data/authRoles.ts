@@ -31,6 +31,20 @@ export interface AdminMessage {
   acknowledged: boolean;
   createdAt: string;
   acknowledgedAt?: string;
+  replyText?: string;
+  repliedAt?: string;
+}
+
+export interface AdminReply {
+  id: string;
+  senderUid: string;
+  senderName: string;
+  parentMessageId: string;
+  parentMessagePreview: string;
+  replyText: string;
+  readByAdmin: boolean;
+  createdAt: string;
+  readAt?: string;
 }
 
 export interface SiteSettings {
@@ -211,4 +225,10 @@ export function formatLastSeenLabel(lastSeenAt?: string, nowMs = Date.now()): st
 
 export function sanitizeAdminMessageText(raw: string): string {
   return (raw || '').trim().slice(0, 1000);
+}
+
+export function sanitizeMessagePreview(raw: string): string {
+  const clean = (raw || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= 200) return clean;
+  return `${clean.slice(0, 197)}...`;
 }

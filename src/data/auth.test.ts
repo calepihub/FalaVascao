@@ -13,7 +13,8 @@ import {
   ONLINE_PRESENCE_TTL_MS,
   OWNER_EMAIL,
   resolveInitialRoleForGoogleEmail,
-  sanitizeAdminMessageText
+  sanitizeAdminMessageText,
+  sanitizeMessagePreview
 } from './authRoles';
 
 test('recognizes verified tazmaniacrvg@gmail.com as Owner and Super Admin', () => {
@@ -220,4 +221,12 @@ test('keeps active members online accurately even with severe local clock skew r
     ),
     true
   );
+});
+
+test('sanitizes parent message preview cleanly for admin reply inbox within 200 chars', () => {
+  assert.equal(sanitizeMessagePreview('   Aviso   importante\npara você   '), 'Aviso importante para você');
+  const longText = 'x'.repeat(260);
+  const preview = sanitizeMessagePreview(longText);
+  assert.equal(preview.length, 200);
+  assert.equal(preview.endsWith('...'), true);
 });

@@ -16,7 +16,8 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import {
   auth,
@@ -27,6 +28,7 @@ import {
 } from './firebase';
 import {
   AdminMessage,
+  AdminReply,
   AppUser,
   buildDefaultPermissionsForRole,
   canAccessTacticsBoard,
@@ -41,6 +43,7 @@ import {
   OWNER_EMAIL,
   resolveInitialRoleForGoogleEmail,
   sanitizeAdminMessageText,
+  sanitizeMessagePreview,
   SiteSettings,
   TacticsAccessDenialReason,
   TacticsAccessResult,
@@ -51,6 +54,7 @@ import {
 
 export type {
   AdminMessage,
+  AdminReply,
   AppUser,
   SiteSettings,
   TacticsAccessDenialReason,
@@ -72,7 +76,8 @@ export {
   isUserCurrentlyOnline,
   isVerifiedOwnerEmail,
   resolveInitialRoleForGoogleEmail,
-  sanitizeAdminMessageText
+  sanitizeAdminMessageText,
+  sanitizeMessagePreview
 };
 
 let cachedCurrentUser: AppUser | null = null;
@@ -447,7 +452,10 @@ export const authService = {
               senderName: String(data.senderName || 'Administração Fala Vascão'),
               message: String(data.message || ''),
               acknowledged: data.acknowledged === true,
-              createdAt: toIsoString(data.createdAt)
+              createdAt: toIsoString(data.createdAt),
+              acknowledgedAt: data.acknowledgedAt ? toIsoString(data.acknowledgedAt) : undefined,
+              replyText: typeof data.replyText === 'string' ? data.replyText : undefined,
+              repliedAt: data.repliedAt ? toIsoString(data.repliedAt) : undefined
             };
           })
           .filter((m) => !m.acknowledged && m.message.length > 0)
@@ -461,12 +469,161 @@ export const authService = {
     );
   },
 
+  subscribeUserMessageThread(
+    userId: string,
+    callback: (messages: AdminMessage[]) => void,
+    onError?: (err: unknown) => void
+  ): () => void {
+    const path = `users/${userId}/messages`;
+    return onSnapshot(
+      collection(db, 'users', userId, 'messages'),
+      (snapshot) => {
+        const items: AdminMessage[] = snapshot.docs
+          .map((d) => {
+            const data = d.data({ serverTimestamps: 'estimate' }) as Record<string, any>;
+            return {
+              id: d.id,
+              recipientUid: String(data.recipientUid || userId),
+              senderUid: String(data.senderUid || ''),
+              senderName: String(data.senderName || 'Administração Fala Vascão'),
+              message: String(data.message || ''),
+              acknowledged: data.acknowledged === true,
+              createdAt: toIsoString(data.createdAt),
+              acknowledgedAt: data.acknowledgedAt ? toIsoString(data.acknowledgedAt) : undefined,
+              replyText: typeof data.replyText === 'string' ? data.replyText : undefined,
+              repliedAt: data.repliedAt ? toIsoString(data.repliedAt) : undefined
+            };
+          })
+          .filter((m) => m.message.length > 0)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        callback(items);
+      },
+      (err) => {
+        console.error(`Thread listener error at ${path}:`, err);
+        if (onError) onError(err);
+      }
+    );
+  },
+
   async acknowledgeAdminMessage(userId: string, messageId: string): Promise<void> {
     const path = `users/${userId}/messages/${messageId}`;
     try {
       await updateDoc(doc(db, 'users', userId, 'messages', messageId), {
         acknowledged: true,
         acknowledgedAt: serverTimestamp()
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
+  },
+
+  async replyToAdminMessage(
+    userId: string,
+    messageId: string,
+    parentMessageText: string,
+    rawReply: string,
+    alsoAcknowledge = false
+  ): Promise<AdminReply> {
+    const fbUser = auth.currentUser;
+    if (!fbUser || !fbUser.emailVerified || fbUser.uid !== userId) {
+      throw new Error('Autentique-se com sua Conta Google verificada para responder.');
+    }
+
+    const cleanReply = sanitizeAdminMessageText(rawReply);
+    if (!cleanReply) {
+      throw new Error('Digite uma resposta antes de enviar.');
+    }
+
+    const senderName =
+      clampString(cachedCurrentUser?.name || fbUser.displayName, 120) ||
+      clampString(fbUser.email?.split('@')[0], 120) ||
+      'Torcedor';
+    const preview = sanitizeMessagePreview(parentMessageText);
+    const replyId = `rep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const messagePath = `users/${userId}/messages/${messageId}`;
+    const replyPath = `admin_replies/${replyId}`;
+
+    const batch = writeBatch(db);
+    const messageRef = doc(db, 'users', userId, 'messages', messageId);
+    const messageUpdate: Record<string, unknown> = {
+      replyText: cleanReply,
+      repliedAt: serverTimestamp()
+    };
+    if (alsoAcknowledge) {
+      messageUpdate.acknowledged = true;
+      messageUpdate.acknowledgedAt = serverTimestamp();
+    }
+    batch.update(messageRef, messageUpdate);
+
+    const replyRef = doc(db, 'admin_replies', replyId);
+    batch.set(replyRef, {
+      senderUid: userId,
+      senderName,
+      parentMessageId: messageId,
+      parentMessagePreview: preview,
+      replyText: cleanReply,
+      readByAdmin: false,
+      createdAt: serverTimestamp()
+    });
+
+    try {
+      await batch.commit();
+      return {
+        id: replyId,
+        senderUid: userId,
+        senderName,
+        parentMessageId: messageId,
+        parentMessagePreview: preview,
+        replyText: cleanReply,
+        readByAdmin: false,
+        createdAt: new Date().toISOString()
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `${messagePath} + ${replyPath}`);
+    }
+  },
+
+  subscribeAdminReplies(
+    callback: (replies: AdminReply[]) => void,
+    onError?: (err: unknown) => void
+  ): () => void {
+    const path = 'admin_replies';
+    return onSnapshot(
+      collection(db, path),
+      (snapshot) => {
+        const list: AdminReply[] = snapshot.docs
+          .map((d) => {
+            const data = d.data({ serverTimestamps: 'estimate' }) as Record<string, any>;
+            return {
+              id: d.id,
+              senderUid: String(data.senderUid || ''),
+              senderName: String(data.senderName || 'Torcedor'),
+              parentMessageId: String(data.parentMessageId || ''),
+              parentMessagePreview: String(data.parentMessagePreview || ''),
+              replyText: String(data.replyText || ''),
+              readByAdmin: data.readByAdmin === true,
+              createdAt: toIsoString(data.createdAt),
+              readAt: data.readAt ? toIsoString(data.readAt) : undefined
+            };
+          })
+          .filter((r) => r.replyText.length > 0)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        callback(list);
+      },
+      (err) => {
+        console.error(`Admin replies listener error at ${path}:`, err);
+        if (onError) onError(err);
+      }
+    );
+  },
+
+  async markAdminReplyRead(replyId: string): Promise<void> {
+    const path = `admin_replies/${replyId}`;
+    try {
+      await updateDoc(doc(db, 'admin_replies', replyId), {
+        readByAdmin: true,
+        readAt: serverTimestamp()
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, path);

@@ -45,6 +45,7 @@ interface PortalViewProps {
   onOpenAdminPanel: () => void;
   onOpenAdminProfile?: () => void;
   siteSettings: SiteSettings;
+  unreadRepliesCount?: number;
 }
 
 export const PortalView: React.FC<PortalViewProps> = ({
@@ -54,7 +55,8 @@ export const PortalView: React.FC<PortalViewProps> = ({
   onLogout,
   onOpenAdminPanel,
   onOpenAdminProfile,
-  siteSettings
+  siteSettings,
+  unreadRepliesCount = 0
 }) => {
   const [channelData, setChannelData] = useState<YouTubeChannelData | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(true);
@@ -201,15 +203,20 @@ export const PortalView: React.FC<PortalViewProps> = ({
               <div className="flex items-center gap-2">
                 {currentUser ? (
                   <div className="flex items-center gap-2">
-                    {/* Owner Admin Badge & Button */}
-                    {isOwner && (
+                    {/* Owner/Admin Badge & Button */}
+                    {(isOwner || isAdmin) && (
                       <button
                         onClick={onOpenAdminPanel}
                         className="px-3 py-1 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-[0_0_12px_rgba(214,40,57,0.4)] cursor-pointer"
-                        title="Abrir Painel Administrativo do Owner"
+                        title="Abrir Painel Administrativo"
                       >
                         <span>🛡️</span>
                         <span>Painel Admin</span>
+                        {unreadRepliesCount > 0 && (
+                          <span className="px-1.5 py-0.2 rounded-full bg-white text-[#b01827] text-[10px] font-black animate-pulse">
+                            💬 {unreadRepliesCount}
+                          </span>
+                        )}
                       </button>
                     )}
 

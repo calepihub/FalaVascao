@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
+  AdminMessage,
+  AdminReply,
   AppUser,
   UserRole,
   UserStatus,
@@ -18,15 +20,17 @@ interface AdminPanelModalProps {
   onClose: () => void;
   currentUser: AppUser | null;
   onSettingsChanged?: (settings: SiteSettings) => void;
+  adminReplies?: AdminReply[];
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onSettingsChanged
+  onSettingsChanged,
+  adminReplies = []
 }) => {
-  const [activeTab, setActiveTab] = useState<'members' | 'visibility' | 'mural' | 'database'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'replies' | 'visibility' | 'mural' | 'database'>('members');
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,8 +53,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [loadingMural, setLoadingMural] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
-  // Direct Admin Messaging state
+  // Direct Admin Messaging & Conversation Thread state
   const [messageTarget, setMessageTarget] = useState<AppUser | null>(null);
+  const [messageThread, setMessageThread] = useState<AdminMessage[]>([]);
+  const [loadingThread, setLoadingThread] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
@@ -109,6 +115,39 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       clearInterval(tickTimer);
     };
   }, [isOpen, currentUser]);
+
+  // Real-time conversation thread listener when Admin opens a member's message modal
+  useEffect(() => {
+    if (!isOpen || !messageTarget?.id || !authService.isAdminOrOwner(currentUser)) {
+      setMessageThread([]);
+      setLoadingThread(false);
+      return;
+    }
+
+    setLoadingThread(true);
+    const unsubThread = authService.subscribeUserMessageThread(
+      messageTarget.id,
+      (thread) => {
+        setMessageThread(thread);
+        setLoadingThread(false);
+      },
+      () => {
+        setLoadingThread(false);
+      }
+    );
+
+    // Mark unread replies from this member as read automatically when opening thread
+    const unreadFromTarget = adminReplies.filter(
+      (r) => r.senderUid === messageTarget.id && !r.readByAdmin
+    );
+    unreadFromTarget.forEach((r) => {
+      void authService.markAdminReplyRead(r.id).catch(() => {});
+    });
+
+    return () => {
+      unsubThread();
+    };
+  }, [isOpen, messageTarget?.id, currentUser, adminReplies]);
 
   if (!isOpen || !authService.isAdminOrOwner(currentUser)) return null;
 
@@ -192,6 +231,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     setMessageError(null);
   };
 
+  const handleOpenThreadFromReply = (reply: AdminReply) => {
+    const foundUser = users.find((u) => u.id === reply.senderUid);
+    const target: AppUser = foundUser || {
+      id: reply.senderUid,
+      email: '',
+      name: reply.senderName,
+      avatar: '',
+      role: 'member',
+      status: 'active',
+      permissions: {
+        canPostMural: true,
+        canUseTactics: true,
+        canUseAdvancedTools: false,
+        canModerate: false
+      },
+      createdAt: reply.createdAt
+    };
+    if (!reply.readByAdmin) {
+      void authService.markAdminReplyRead(reply.id).catch(() => {});
+    }
+    handleOpenMessageComposer(target);
+  };
+
   const handleSendDirectMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageTarget || sendingMessage) return;
@@ -212,7 +274,6 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           ? `Mensagem enviada para ${messageTarget.name} (online — o aviso será exibido imediatamente).`
           : `Mensagem enviada para ${messageTarget.name} (offline — o aviso será exibido assim que entrar).`
       );
-      setMessageTarget(null);
       setMessageText('');
     } catch (err: any) {
       setMessageError(err?.message || 'Não foi possível enviar a mensagem.');
@@ -224,6 +285,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const presenceNowMs = computeServerPresenceNowMs(users, currentUser?.id, serverAnchor, nowMs);
   const onlineUsersCount = users.filter((u) => isUserCurrentlyOnline(u, presenceNowMs)).length;
   const offlineUsersCount = Math.max(0, users.length - onlineUsersCount);
+
+  const unreadRepliesCount = adminReplies.filter((r) => !r.readByAdmin).length;
+  const unreadByUserId = new Map<string, number>();
+  for (const r of adminReplies) {
+    if (!r.readByAdmin) {
+      unreadByUserId.set(r.senderUid, (unreadByUserId.get(r.senderUid) || 0) + 1);
+    }
+  }
 
   const filteredUsers = users.filter((u) => {
     const q = searchTerm.toLowerCase();
@@ -271,7 +340,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         <div className="flex items-center gap-1 px-6 pt-3 pb-2 border-b border-[#1f2d22] bg-[#090e0a] text-xs font-bold overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('members')}
-            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
+            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'members'
                 ? 'bg-[#1b6b3b] text-white shadow-md'
                 : 'text-[#8ba091] hover:text-white hover:bg-[#131d16]'
@@ -285,8 +354,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('replies')}
+            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              activeTab === 'replies'
+                ? 'bg-[#1b6b3b] text-white shadow-md'
+                : 'text-[#8ba091] hover:text-white hover:bg-[#131d16]'
+            }`}
+          >
+            <span>💬</span>
+            <span>Respostas</span>
+            <span
+              className={`px-1.5 py-0.2 text-[10px] rounded-full font-black ${
+                unreadRepliesCount > 0
+                  ? 'bg-[#d62839] text-white animate-pulse'
+                  : 'bg-black/40 text-[#9db3a4]'
+              }`}
+            >
+              {unreadRepliesCount > 0 ? `${unreadRepliesCount} nova${unreadRepliesCount > 1 ? 's' : ''}` : adminReplies.length}
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('visibility')}
-            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
+            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'visibility'
                 ? 'bg-[#1b6b3b] text-white shadow-md'
                 : 'text-[#8ba091] hover:text-white hover:bg-[#131d16]'
@@ -592,9 +682,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                       ? `Enviar mensagem imediata para ${user.name}`
                                       : `Enviar mensagem para ${user.name} (verá ao entrar)`
                                   }
-                                  className="px-2 py-1 bg-[#14301f] hover:bg-[#1d482e] border border-[#2c6642] text-[#7ef7aa] rounded text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
+                                  className="px-2 py-1 bg-[#14301f] hover:bg-[#1d482e] border border-[#2c6642] text-[#7ef7aa] rounded text-[11px] font-bold transition cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
                                 >
-                                  ✉️ Mensagem
+                                  <span>✉️ Mensagem</span>
+                                  {(unreadByUserId.get(user.id) || 0) > 0 && (
+                                    <span className="px-1.5 py-0.2 rounded-full bg-[#d62839] text-white text-[9px] font-black animate-pulse">
+                                      {unreadByUserId.get(user.id)}
+                                    </span>
+                                  )}
                                 </button>
                                 {!isThisOwner && (
                                   <button
@@ -612,6 +707,132 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 1b: MEMBER REPLIES INBOX */}
+          {activeTab === 'replies' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#213025]">
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                    Respostas Recebidas dos Membros
+                  </h3>
+                  <p className="text-xs text-[#8ca092]">
+                    Acompanhe em tempo real todas as respostas enviadas pelos torcedores às mensagens da administração.
+                  </p>
+                </div>
+                {unreadRepliesCount > 0 && (
+                  <span className="px-3 py-1 rounded-lg bg-[#381418] border border-[#78262e] text-[#ff8c97] text-[11px] font-black self-start">
+                    {unreadRepliesCount} resposta{unreadRepliesCount > 1 ? 's' : ''} não lida{unreadRepliesCount > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {adminReplies.length === 0 ? (
+                <div className="py-12 text-center text-[#7e9185] bg-[#09100b] rounded-xl border border-[#1f2e23] text-xs">
+                  Nenhum membro respondeu às mensagens da administração ainda.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {adminReplies.map((reply) => {
+                    const senderUser = users.find((u) => u.id === reply.senderUid);
+                    const senderOnline = isUserCurrentlyOnline(senderUser, presenceNowMs);
+                    const formattedReplyDate = (() => {
+                      const ms = Date.parse(reply.createdAt);
+                      if (!Number.isFinite(ms)) return '';
+                      return new Date(ms).toLocaleString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
+                    })();
+
+                    return (
+                      <div
+                        key={reply.id}
+                        className={`p-4 rounded-xl border transition space-y-2.5 ${
+                          !reply.readByAdmin
+                            ? 'bg-[#132218] border-[#38754b] shadow-lg'
+                            : 'bg-[#0e1610] border-[#233327]'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-[#d62839] to-[#1f3022] border border-[#3b5240] flex items-center justify-center font-black text-white text-xs shrink-0 overflow-hidden">
+                              {senderUser?.avatar ? (
+                                <img src={senderUser.avatar} alt={reply.senderName} className="w-full h-full object-cover" />
+                              ) : (
+                                reply.senderName.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black text-white truncate">
+                                  {reply.senderName}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold inline-flex items-center gap-1 ${
+                                    senderOnline ? 'text-[#62f094]' : 'text-[#7c8f83]'
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      senderOnline ? 'bg-[#42d679]' : 'bg-[#64756a]'
+                                    }`}
+                                  />
+                                  {senderOnline ? 'Online' : 'Offline'}
+                                </span>
+                                {!reply.readByAdmin && (
+                                  <span className="px-1.5 py-0.2 rounded bg-[#d62839] text-white text-[9px] font-black uppercase">
+                                    Nova
+                                  </span>
+                                )}
+                              </div>
+                              {formattedReplyDate && (
+                                <span className="text-[10px] text-[#7c9284] block">
+                                  Respondida em {formattedReplyDate}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {!reply.readByAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => void authService.markAdminReplyRead(reply.id)}
+                                className="px-2.5 py-1 bg-[#14261a] hover:bg-[#1c3825] border border-[#2d583a] text-[#8beaa9] rounded-lg text-[11px] font-bold transition cursor-pointer"
+                              >
+                                ✓ Marcar como lida
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenThreadFromReply(reply)}
+                              className="px-3 py-1 bg-[#1b6b3b] hover:bg-[#23874b] text-white rounded-lg text-[11px] font-black transition cursor-pointer"
+                            >
+                              💬 Conversar / Responder
+                            </button>
+                          </div>
+                        </div>
+
+                        {reply.parentMessagePreview && (
+                          <div className="px-3 py-1.5 rounded-lg bg-[#09100b] border-l-2 border-[#3c6147] text-[11px] text-[#8ca394] italic">
+                            Em resposta ao seu aviso: &ldquo;{reply.parentMessagePreview}&rdquo;
+                          </div>
+                        )}
+
+                        <div className="p-3 rounded-lg bg-[#0a100c] border border-[#243629] text-xs text-white leading-relaxed whitespace-pre-wrap break-words">
+                          {reply.replyText}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -932,7 +1153,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         </div>
       )}
 
-      {/* Direct Message Composer Sub-Modal */}
+      {/* Direct Message & Two-Way Conversation Sub-Modal */}
       {messageTarget && (
         <div
           onClick={() => !sendingMessage && setMessageTarget(null)}
@@ -941,9 +1162,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           <form
             onSubmit={handleSendDirectMessage}
             onClick={(e) => e.stopPropagation()}
-            className="w-[min(480px,95vw)] bg-[#0f1712] border border-[#35553e] rounded-2xl shadow-2xl overflow-hidden text-[#e6ece8]"
+            className="w-[min(560px,95vw)] max-h-[90vh] flex flex-col bg-[#0f1712] border border-[#35553e] rounded-2xl shadow-2xl overflow-hidden text-[#e6ece8]"
           >
-            <div className="px-5 py-4 bg-[#142118] border-b border-[#25382a] flex items-center justify-between gap-3">
+            <div className="px-5 py-4 bg-[#142118] border-b border-[#25382a] flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d62839] to-[#1f3022] border border-[#3b5240] flex items-center justify-center font-black text-white text-xs shrink-0 overflow-hidden">
                   {messageTarget.avatar ? (
@@ -958,10 +1179,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </div>
                 <div className="min-w-0">
                   <h4 className="text-sm font-black text-white truncate">
-                    Enviar Mensagem para {messageTarget.name}
+                    Conversa Direta com {messageTarget.name}
                   </h4>
                   <p className="text-[11px] text-[#8ca394] truncate">
-                    {messageTarget.email}
+                    {messageTarget.email || 'Membro autenticado'}
                   </p>
                 </div>
               </div>
@@ -976,7 +1197,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               </button>
             </div>
 
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
               {isUserCurrentlyOnline(messageTarget, presenceNowMs) ? (
                 <div className="px-3 py-2 rounded-lg bg-[#12331d] border border-[#2a6d40] text-[11px] font-bold text-[#74f59f] flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#42d679] animate-pulse shrink-0" />
@@ -989,22 +1210,108 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </div>
               )}
 
+              {/* Conversation Thread History */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-[#8aa092] uppercase tracking-wider">
+                    Histórico de Mensagens & Respostas ({messageThread.length})
+                  </span>
+                </div>
+
+                {loadingThread ? (
+                  <div className="p-4 rounded-xl bg-[#09100b] border border-[#1e2c22] text-center text-[11px] text-[#7c9284]">
+                    Carregando conversa...
+                  </div>
+                ) : messageThread.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-[#09100b] border border-[#1e2c22] text-center text-[11px] text-[#7c9284]">
+                    Nenhuma mensagem enviada para este membro ainda.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-[240px] overflow-y-auto p-3 rounded-xl bg-[#080d0a] border border-[#1e2d23] scrollbar-thin">
+                    {messageThread.map((m) => {
+                      const sentDate = (() => {
+                        const ms = Date.parse(m.createdAt);
+                        if (!Number.isFinite(ms)) return '';
+                        return new Date(ms).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        });
+                      })();
+                      const replyDate = (() => {
+                        if (!m.repliedAt) return '';
+                        const ms = Date.parse(m.repliedAt);
+                        if (!Number.isFinite(ms)) return '';
+                        return new Date(ms).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        });
+                      })();
+
+                      return (
+                        <div key={m.id} className="space-y-1.5">
+                          {/* Admin sent bubble */}
+                          <div className="ml-6 p-3 rounded-xl bg-[#15291c] border border-[#2c5439] space-y-1">
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="font-black text-[#80f2a7]">
+                                🛡️ {m.senderName}
+                              </span>
+                              <span className="text-[#8ba694]">
+                                {sentDate} •{' '}
+                                {m.acknowledged ? (
+                                  <span className="text-[#62f094] font-bold">✓ Lida</span>
+                                ) : (
+                                  <span className="text-amber-300 font-bold">⏳ Pendente</span>
+                                )}
+                              </span>
+                            </div>
+                            <p className="text-xs text-white leading-relaxed whitespace-pre-wrap break-words">
+                              {m.message}
+                            </p>
+                          </div>
+
+                          {/* Member reply bubble */}
+                          {m.replyText && (
+                            <div className="mr-6 p-3 rounded-xl bg-[#111c26] border border-[#2b4d6e] space-y-1">
+                              <div className="flex items-center justify-between gap-2 text-[10px]">
+                                <span className="font-black text-[#7bc4ff]">
+                                  💬 Resposta de {messageTarget.name}
+                                </span>
+                                {replyDate && (
+                                  <span className="text-[#8ca8c2]">{replyDate}</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-white leading-relaxed whitespace-pre-wrap break-words">
+                                {m.replyText}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-[10px] font-black text-[#8aa092] uppercase tracking-wider">
-                    Conteúdo da Mensagem
+                    Nova Mensagem / Resposta para {messageTarget.name}
                   </label>
                   <span className="text-[10px] text-[#7c9284] font-mono">
                     {messageText.length}/1000
                   </span>
                 </div>
                 <textarea
-                  rows={4}
+                  rows={3}
                   maxLength={1000}
                   autoFocus
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
-                  placeholder="Digite o comunicado para este membro..."
+                  placeholder="Digite um novo aviso ou resposta para este membro..."
                   className="w-full p-3 text-xs bg-[#0a100c] text-white border border-[#2f4535] rounded-xl outline-none focus:border-[#43c776] resize-none leading-relaxed"
                 />
               </div>
@@ -1014,14 +1321,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               )}
             </div>
 
-            <div className="px-5 py-3.5 bg-[#0a100c] border-t border-[#1f2e23] flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-[#0a100c] border-t border-[#1f2e23] flex items-center justify-end gap-2 shrink-0">
               <button
                 type="button"
                 disabled={sendingMessage}
                 onClick={() => setMessageTarget(null)}
                 className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white cursor-pointer"
               >
-                Cancelar
+                Fechar
               </button>
               <button
                 type="submit"

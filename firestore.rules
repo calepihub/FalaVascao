@@ -72,14 +72,46 @@ service cloud.firestore {
 
     function isValidAdminMessage(data) {
       return data.keys().hasAll(['recipientUid', 'senderUid', 'senderName', 'message', 'acknowledged', 'createdAt']) &&
-        data.keys().hasOnly(['recipientUid', 'senderUid', 'senderName', 'message', 'acknowledged', 'createdAt', 'acknowledgedAt']) &&
+        data.keys().hasOnly(['recipientUid', 'senderUid', 'senderName', 'message', 'acknowledged', 'createdAt', 'acknowledgedAt', 'replyText', 'repliedAt']) &&
         isValidId(data.recipientUid) &&
         isValidId(data.senderUid) &&
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
         data.message is string && data.message.size() >= 1 && data.message.size() <= 1000 &&
         data.acknowledged is bool &&
         data.createdAt is timestamp &&
-        (!('acknowledgedAt' in data) || data.acknowledgedAt is timestamp);
+        (!('acknowledgedAt' in data) || data.acknowledgedAt is timestamp) &&
+        (!('replyText' in data) || (data.replyText is string && data.replyText.size() >= 1 && data.replyText.size() <= 1000)) &&
+        (!('repliedAt' in data) || data.repliedAt is timestamp);
+    }
+
+    function isValidAdminReply(data) {
+      return data.keys().hasAll([
+          'senderUid',
+          'senderName',
+          'parentMessageId',
+          'parentMessagePreview',
+          'replyText',
+          'readByAdmin',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'senderUid',
+          'senderName',
+          'parentMessageId',
+          'parentMessagePreview',
+          'replyText',
+          'readByAdmin',
+          'createdAt',
+          'readAt'
+        ]) &&
+        isValidId(data.senderUid) &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+        isValidId(data.parentMessageId) &&
+        data.parentMessagePreview is string && data.parentMessagePreview.size() <= 200 &&
+        data.replyText is string && data.replyText.size() >= 1 && data.replyText.size() <= 1000 &&
+        data.readByAdmin is bool &&
+        data.createdAt is timestamp &&
+        (!('readAt' in data) || data.readAt is timestamp);
     }
 
     function isValidSiteSettings(data) {
@@ -148,7 +180,7 @@ service cloud.firestore {
       return data.keys().hasAll(['ownerUid', 'kind', 'payload', 'updatedAt']) &&
         data.keys().hasOnly(['ownerUid', 'kind', 'payload', 'updatedAt']) &&
         isValidId(data.ownerUid) &&
-        data.kind in ['lineup', 'play', 'board'] &&
+        data.kind in ['lineup', 'play', 'board', 'speculated_squad'] &&
         data.payload is map &&
         data.updatedAt is timestamp;
     }
@@ -236,10 +268,33 @@ service cloud.firestore {
           incoming().senderName == existing().senderName &&
           incoming().message == existing().message &&
           incoming().createdAt == existing().createdAt &&
-          existing().acknowledged == false &&
-          incoming().acknowledged == true &&
-          incoming().acknowledgedAt == request.time &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['acknowledged', 'acknowledgedAt']);
+          (
+            // Action A: Acknowledge message with Ok (no reply)
+            (
+              existing().acknowledged == false &&
+              incoming().acknowledged == true &&
+              incoming().acknowledgedAt == request.time &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['acknowledged', 'acknowledgedAt'])
+            ) ||
+            // Action B: Member sends reply before closing modal
+            (
+              !('replyText' in existing()) &&
+              'replyText' in incoming() &&
+              incoming().repliedAt == request.time &&
+              incoming().acknowledged == existing().acknowledged &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['replyText', 'repliedAt'])
+            ) ||
+            // Action C: Member replies and closes with Ok in one step
+            (
+              !('replyText' in existing()) &&
+              'replyText' in incoming() &&
+              existing().acknowledged == false &&
+              incoming().acknowledged == true &&
+              incoming().acknowledgedAt == request.time &&
+              incoming().repliedAt == request.time &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['acknowledged', 'acknowledgedAt', 'replyText', 'repliedAt'])
+            )
+          );
         allow delete: if isAdmin() && isValidId(userId) && isValidId(messageId);
       }
 
@@ -265,6 +320,36 @@ service cloud.firestore {
           incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'updatedAt']);
         allow delete: if isVerified() && isValidId(userId) && isValidId(docId) && request.auth.uid == userId;
       }
+    }
+
+    // 1b. Admin Replies Inbox (member responses to direct admin messages)
+    match /admin_replies/{replyId} {
+      allow get: if isVerified() && isValidId(replyId) && (existing().senderUid == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.senderUid == request.auth.uid || isAdmin());
+
+      allow create: if isVerified() &&
+        isValidId(replyId) &&
+        isValidAdminReply(incoming()) &&
+        incoming().senderUid == request.auth.uid &&
+        incoming().readByAdmin == false &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/messages/$(incoming().parentMessageId));
+
+      allow update: if isAdmin() &&
+        isValidId(replyId) &&
+        isValidAdminReply(incoming()) &&
+        incoming().senderUid == existing().senderUid &&
+        incoming().senderName == existing().senderName &&
+        incoming().parentMessageId == existing().parentMessageId &&
+        incoming().parentMessagePreview == existing().parentMessagePreview &&
+        incoming().replyText == existing().replyText &&
+        incoming().createdAt == existing().createdAt &&
+        existing().readByAdmin == false &&
+        incoming().readByAdmin == true &&
+        incoming().readAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['readByAdmin', 'readAt']);
+
+      allow delete: if isAdmin() && isValidId(replyId);
     }
 
     // 2. Site Settings collection (settings/site)

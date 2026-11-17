@@ -9,12 +9,14 @@ import { PortalView } from './components/Portal/PortalView';
 import { DrawingCanvasRef, DrawingTool } from './components/DrawingCanvas';
 import { INITIAL_SQUAD, SquadPlayer, OPPONENT_CLUBS, TACTICAL_FORMATIONS } from './data/squad';
 import { storage, FieldTokenData, LineupSnapshot, SavedBoard, CommunityLineup } from './data/storage';
-import { AppUser, SiteSettings, AdminMessage, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
+import { AppUser, SiteSettings, AdminMessage, AdminReply, authService, DEFAULT_SITE_SETTINGS } from './data/auth';
 import { FIREBASE_PROJECT_ID } from './data/firebase';
 import { databaseService, DbClub, DbPlayer, getClubColors } from './data/databaseService';
+import { speculatedSquadService, SpeculatedSquad } from './data/speculatedSquads';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { AdminProfileModal } from './components/AdminProfileModal';
 import { AdminMessageModal } from './components/AdminMessageModal';
+import { SpeculatedSquadModal } from './components/SpeculatedSquadModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { RosterPlayerItem } from './components/RosterPanel';
 import { DraggablePopup } from './components/DraggablePopup';
@@ -40,6 +42,7 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warn' | 'error' | 'info' } | null>(null);
   const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
   const [pendingAdminMessages, setPendingAdminMessages] = useState<AdminMessage[]>([]);
+  const [adminReplies, setAdminReplies] = useState<AdminReply[]>([]);
   const pendingOpenTacticsRef = useRef(false);
 
   const showToast = useCallback((message: string, type: 'success' | 'warn' | 'error' | 'info' = 'info') => {
@@ -141,6 +144,12 @@ export default function App() {
 
   // State (always backed by bd.xlsx without temporary overrides)
   const [squad, setSquad] = useState<RosterPlayerItem[]>(INITIAL_SQUAD);
+  const [allClubs, setAllClubs] = useState<DbClub[]>([]);
+  const [allDbPlayers, setAllDbPlayers] = useState<DbPlayer[]>([]);
+  const [squadMode, setSquadMode] = useState<'official' | 'speculated'>('official');
+  const [speculatedSquads, setSpeculatedSquads] = useState<SpeculatedSquad[]>([]);
+  const [activeSpeculatedSquadId, setActiveSpeculatedSquadId] = useState<string>('');
+  const [isSpeculatedModalOpen, setIsSpeculatedModalOpen] = useState(false);
   const [opponentClubs, setOpponentClubs] = useState<DbClub[]>([]);
   const [selectedClubSquad, setSelectedClubSquad] = useState<DbPlayer[]>([]);
   const [selectedPlayerForModal, setSelectedPlayerForModal] = useState<FieldTokenData | null>(null);
@@ -231,6 +240,8 @@ export default function App() {
         }
         const oppClubs = databaseService.getOpponentClubs();
         setOpponentClubs(oppClubs);
+        setAllClubs(databaseService.getClubs());
+        setAllDbPlayers(databaseService.getAllPlayers());
       } catch (err) {
         console.warn('Erro ao carregar banco de dados bd.xlsx:', err);
         setSquad([...INITIAL_SQUAD]);
@@ -332,13 +343,34 @@ export default function App() {
     };
   }, [showToast]);
 
-  // 1b. Live Presence Heartbeat + Pending Direct Admin Messages for signed-in member
+  // 1b. Live Presence Heartbeat + Pending Direct Admin Messages + User Speculated Squads
   useEffect(() => {
     const uid = currentUser?.id;
     if (!uid) {
       setPendingAdminMessages([]);
+      setSpeculatedSquads([]);
+      setActiveSpeculatedSquadId('');
+      setSquadMode('official');
+      setIsSpeculatedModalOpen(false);
       return;
     }
+
+    const cachedLocal = speculatedSquadService.getCachedLocalSquads(uid);
+    if (cachedLocal.length > 0) {
+      setSpeculatedSquads(cachedLocal);
+      setActiveSpeculatedSquadId((prev) => prev || cachedLocal[0].id);
+    }
+
+    const unsubscribeSpeculated = speculatedSquadService.subscribeUserSpeculatedSquads(
+      uid,
+      (loadedSquads) => {
+        setSpeculatedSquads(loadedSquads);
+        setActiveSpeculatedSquadId((prev) => {
+          if (prev && loadedSquads.some((s) => s.id === prev)) return prev;
+          return loadedSquads[0]?.id || '';
+        });
+      }
+    );
 
     const unsubscribeMessages = authService.subscribePendingAdminMessages(
       uid,
@@ -376,6 +408,7 @@ export default function App() {
     window.addEventListener('beforeunload', handlePageExit);
 
     return () => {
+      unsubscribeSpeculated();
       unsubscribeMessages();
       clearInterval(heartbeatInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -385,6 +418,58 @@ export default function App() {
     };
   }, [currentUser?.id, showToast]);
 
+  // 1c. Live Admin Replies Inbox subscription (strictly for verified Admin/Owner)
+  const isAdminViewer = authService.isAdminOrOwner(currentUser);
+  useEffect(() => {
+    if (!currentUser?.id || !isAdminViewer) {
+      setAdminReplies([]);
+      return;
+    }
+
+    const unsubscribeReplies = authService.subscribeAdminReplies(
+      (replies) => {
+        setAdminReplies(replies);
+      },
+      (err) => {
+        console.warn('Não foi possível sincronizar respostas de membros:', err);
+      }
+    );
+
+    return () => {
+      unsubscribeReplies();
+    };
+  }, [currentUser?.id, isAdminViewer]);
+
+  const handleSaveSpeculatedSquad = useCallback(
+    async (nextSquad: SpeculatedSquad): Promise<SpeculatedSquad> => {
+      if (!currentUser?.id) {
+        throw new Error('Faça login com sua Conta Google para criar elencos especulados.');
+      }
+      const saved = await speculatedSquadService.saveSpeculatedSquad(currentUser.id, nextSquad);
+      setSpeculatedSquads((prev) => [saved, ...prev.filter((s) => s.id !== saved.id)]);
+      return saved;
+    },
+    [currentUser?.id]
+  );
+
+  const handleDeleteSpeculatedSquad = useCallback(
+    async (squadId: string): Promise<void> => {
+      if (!currentUser?.id) return;
+      await speculatedSquadService.deleteSpeculatedSquad(currentUser.id, squadId);
+      setSpeculatedSquads((prev) => {
+        const remaining = prev.filter((s) => s.id !== squadId);
+        setActiveSpeculatedSquadId((curr) => (curr === squadId ? remaining[0]?.id || '' : curr));
+        return remaining;
+      });
+    },
+    [currentUser?.id]
+  );
+
+  const activeSpeculatedSquad =
+    speculatedSquads.find((s) => s.id === activeSpeculatedSquadId) || speculatedSquads[0] || null;
+  const activeRosterSquad: RosterPlayerItem[] =
+    squadMode === 'speculated' && activeSpeculatedSquad ? activeSpeculatedSquad.players : squad;
+
   const handleAcknowledgeAdminMessage = useCallback(
     async (messageId: string) => {
       if (!currentUser?.id) return;
@@ -393,6 +478,34 @@ export default function App() {
     },
     [currentUser?.id]
   );
+
+  const handleReplyToAdminMessage = useCallback(
+    async (message: AdminMessage, replyText: string, alsoAcknowledge: boolean) => {
+      if (!currentUser?.id) return;
+      await authService.replyToAdminMessage(
+        currentUser.id,
+        message.id,
+        message.message,
+        replyText,
+        alsoAcknowledge
+      );
+      if (alsoAcknowledge) {
+        setPendingAdminMessages((prev) => prev.filter((m) => m.id !== message.id));
+      } else {
+        setPendingAdminMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? { ...m, replyText, repliedAt: new Date().toISOString() }
+              : m
+          )
+        );
+      }
+      showToast('Sua resposta foi enviada para a administração!', 'success');
+    },
+    [currentUser?.id, showToast]
+  );
+
+  const unreadRepliesCount = adminReplies.filter((r) => !r.readByAdmin).length;
 
   // Save history state
   const pushHistory = useCallback(
@@ -491,7 +604,7 @@ export default function App() {
       name: player.name,
       role: player.role,
       photo: storage.getPhoto(player.name, extra.photoUrl || player.photo),
-      club: 'CR Vasco da Gama',
+      club: extra.club || 'CR Vasco da Gama',
       playerId: extra.id,
       rawPosition: extra.rawPosition,
       birthDate: extra.birthDate,
@@ -501,12 +614,18 @@ export default function App() {
       marketValue: extra.marketValue,
       profileUrl: extra.profileUrl,
       comment: extra.comment,
+      isSpeculated: extra.isSpeculated === true,
+      originClub: extra.originClub,
       x: 0.25,
       y: 0.5
     };
 
     handleTokensChange([...tokens, newToken]);
-    setStatusMessage(`${player.name} (${player.role}) adicionado ao campo.`);
+    setStatusMessage(
+      extra.isSpeculated
+        ? `${player.name} (${player.role} • 🔮 Especulado) adicionado ao campo.`
+        : `${player.name} (${player.role}) adicionado ao campo.`
+    );
   };
 
   // Add Opponent player from bd.xlsx to field
@@ -605,20 +724,23 @@ export default function App() {
     setStatusMessage('Bola posicionada no centro do campo.');
   };
 
-  // Apply quick tactical formation
+  // Apply quick tactical formation using the currently active squad (Official OR Speculated)
   const handleApplyFormation = (formationKey: string) => {
     const formation = TACTICAL_FORMATIONS[formationKey];
     if (!formation) return;
 
-    // Pick 11 Vasco players matching roles
+    const pool = activeRosterSquad.length > 0 ? activeRosterSquad : squad;
+    if (!pool.length) return;
+
+    // Pick 11 players matching roles
     const usedNames = new Set<string>();
     const newVascoTokens: FieldTokenData[] = [];
 
     formation.positions.forEach((pos) => {
-      const match = squad.find(
+      const match = pool.find(
         (p) => !usedNames.has(p.name) && (p.role === pos.role || pos.role.includes(p.role))
       );
-      const chosen = match || squad.find((p) => !usedNames.has(p.name)) || squad[0];
+      const chosen = match || pool.find((p) => !usedNames.has(p.name)) || pool[0];
       usedNames.add(chosen.name);
 
       const extra = chosen as any;
@@ -628,7 +750,7 @@ export default function App() {
         name: chosen.name,
         role: chosen.role,
         photo: storage.getPhoto(chosen.name, extra.photoUrl || chosen.photo),
-        club: 'CR Vasco da Gama',
+        club: extra.club || 'CR Vasco da Gama',
         playerId: extra.id,
         rawPosition: extra.rawPosition,
         birthDate: extra.birthDate,
@@ -638,6 +760,8 @@ export default function App() {
         marketValue: extra.marketValue,
         profileUrl: extra.profileUrl,
         comment: extra.comment,
+        isSpeculated: extra.isSpeculated === true,
+        originClub: extra.originClub,
         x: pos.x / 100,
         y: pos.y / 100
       });
@@ -646,7 +770,11 @@ export default function App() {
     // Retain opponent tokens and ball
     const nonVasco = tokens.filter((t) => t.kind !== 'vasco');
     handleTokensChange([...nonVasco, ...newVascoTokens]);
-    setStatusMessage(`Formação ${formation.name} aplicada com 11 jogadores do Vasco.`);
+    setStatusMessage(
+      squadMode === 'speculated' && activeSpeculatedSquad
+        ? `Formação ${formation.name} aplicada com elenco "${activeSpeculatedSquad.name}".`
+        : `Formação ${formation.name} aplicada com 11 jogadores do Vasco.`
+    );
   };
 
   // Tool change
@@ -1271,8 +1399,8 @@ export default function App() {
 
           {/* Header Actions: Socials & Auth & Owner Admin Button */}
           <div className="flex items-center gap-1.5 text-[9px] font-bold shrink-0">
-            {/* Owner Quick Admin Panel Button */}
-            {authService.isOwner(currentUser) && (
+            {/* Owner/Admin Quick Admin Panel Button */}
+            {authService.isAdminOrOwner(currentUser) && (
               <button
                 type="button"
                 onClick={() => setIsAdminModalOpen(true)}
@@ -1282,6 +1410,11 @@ export default function App() {
                 <span>🛡️</span>
                 <span className="hidden xl:inline">Painel Admin</span>
                 <span className="xl:hidden">Admin</span>
+                {unreadRepliesCount > 0 && (
+                  <span className="px-1 py-0.2 rounded-full bg-white text-[#b01827] text-[8px] font-black animate-pulse">
+                    {unreadRepliesCount}
+                  </span>
+                )}
               </button>
             )}
 
@@ -1418,6 +1551,7 @@ export default function App() {
             }}
             onOpenAdminProfile={() => setIsAdminProfileOpen(true)}
             siteSettings={siteSettings}
+            unreadRepliesCount={unreadRepliesCount}
           />
         </main>
       ) : (
@@ -1430,7 +1564,16 @@ export default function App() {
         {!effectivePresentationMode && (
           !isLeftPanelCollapsed ? (
             <RosterPanel
-              squad={squad}
+              squad={activeRosterSquad}
+              squadMode={squadMode}
+              onChangeSquadMode={setSquadMode}
+              speculatedSquads={speculatedSquads}
+              activeSpeculatedSquadId={activeSpeculatedSquad?.id || ''}
+              onSelectSpeculatedSquad={(id) => {
+                setActiveSpeculatedSquadId(id);
+                setSquadMode('speculated');
+              }}
+              onOpenSpeculatedBuilder={() => setIsSpeculatedModalOpen(true)}
               onAddPlayer={handleAddPlayer}
               onStatusMessage={setStatusMessage}
               onToggleCollapse={() => setIsLeftPanelCollapsed(true)}
@@ -1776,6 +1919,7 @@ export default function App() {
           onClose={() => setIsAdminModalOpen(false)}
           currentUser={currentUser}
           onSettingsChanged={(updated) => setSiteSettings(updated)}
+          adminReplies={adminReplies}
         />
       )}
 
@@ -1876,11 +2020,31 @@ export default function App() {
         </div>
       )}
 
-      {/* Direct Admin Message Modal (only single "Ok" button closes it) */}
+      {/* Speculated Squads Builder Modal (available to any signed-in member) */}
+      <SpeculatedSquadModal
+        isOpen={isSpeculatedModalOpen}
+        onClose={() => setIsSpeculatedModalOpen(false)}
+        officialSquad={squad}
+        allClubs={allClubs}
+        allDbPlayers={allDbPlayers}
+        speculatedSquads={speculatedSquads}
+        activeSquadId={activeSpeculatedSquad?.id || ''}
+        onSelectSquad={(id) => setActiveSpeculatedSquadId(id)}
+        onSaveSquad={handleSaveSpeculatedSquad}
+        onDeleteSquad={handleDeleteSpeculatedSquad}
+        onActivateOnBoard={(id) => {
+          setActiveSpeculatedSquadId(id);
+          setSquadMode('speculated');
+          setStatusMessage('Elenco especulado ativado na barra lateral da Prancheta.');
+        }}
+      />
+
+      {/* Direct Admin Message Modal (only single "Ok" button closes it, with optional reply) */}
       <AdminMessageModal
         message={pendingAdminMessages[0] || null}
         pendingCount={pendingAdminMessages.length}
         onAcknowledge={handleAcknowledgeAdminMessage}
+        onReply={handleReplyToAdminMessage}
       />
 
       {/* Non-intrusive Toast Notification Banner */}

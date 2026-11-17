@@ -285,6 +285,10 @@ class DatabaseService {
     return this.clubs;
   }
 
+  public getAllPlayers(): DbPlayer[] {
+    return this.allPlayers;
+  }
+
   public getOpponentClubs(): DbClub[] {
     return this.clubs.filter((c) => !c.name.toLowerCase().includes('vasco'));
   }

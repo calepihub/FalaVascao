@@ -66,7 +66,7 @@
     },
     "AdminMessage": {
       "title": "Admin Direct Message",
-      "description": "Direct notification sent by an administrator to a specific member, displayed upon arrival or next login until acknowledged.",
+      "description": "Direct notification sent by an administrator to a specific member, displayed upon arrival or next login until acknowledged, with optional member reply.",
       "type": "object",
       "properties": {
         "recipientUid": {
@@ -83,9 +83,35 @@
         "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "acknowledged": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "acknowledgedAt": { "type": "string", "format": "date-time" }
+        "acknowledgedAt": { "type": "string", "format": "date-time" },
+        "replyText": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "repliedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["recipientUid", "senderUid", "senderName", "message", "acknowledged", "createdAt"]
+    },
+    "AdminReply": {
+      "title": "Member Reply to Admin Message",
+      "description": "Reply sent by a member in response to an administrator direct message.",
+      "type": "object",
+      "properties": {
+        "senderUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "parentMessageId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "parentMessagePreview": { "type": "string", "maxLength": 200 },
+        "replyText": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "readByAdmin": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "readAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderUid", "senderName", "parentMessageId", "parentMessagePreview", "replyText", "readByAdmin", "createdAt"]
     },
     "SiteSettings": {
       "title": "Site Settings",
@@ -145,7 +171,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["lineup", "play", "board"]
+          "enum": ["lineup", "play", "board", "speculated_squad"]
         },
         "payload": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -160,7 +186,11 @@
     },
     "/users/{userId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/AdminMessage" },
-      "description": "Direct messages from admin to a member, shown in a modal until acknowledged with Ok."
+      "description": "Direct messages from admin to a member, shown in a modal until acknowledged with Ok, with optional member reply."
+    },
+    "/admin_replies/{replyId}": {
+      "schema": { "$ref": "#/entities/AdminReply" },
+      "description": "Inbox of replies sent by members back to administrators."
     },
     "/users/{userId}/tactical_data/{docId}": {
       "schema": { "$ref": "#/entities/TacticalBoardDoc" },
