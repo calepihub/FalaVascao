@@ -1277,7 +1277,7 @@ export default function App() {
   return (
     <div
       className={`w-screen h-screen overflow-hidden bg-[#080c09] text-[#f4f4f4] flex flex-col font-sans ${
-        effectivePresentationMode ? 'p-0' : 'p-2'
+        effectivePresentationMode || currentView !== 'tactics' || !canRenderTactics ? 'p-0' : 'p-2'
       }`}
     >
       {/* Hidden file input for custom vector ball */}
@@ -1289,66 +1289,39 @@ export default function App() {
         onChange={handleBallFileChange}
       />
 
-      {/* Top Application Header Bar */}
-      {!effectivePresentationMode && !isTopBarCollapsed && (
-        <header className="h-9 px-2.5 bg-[#0d1410] border border-[#233026] flex items-center justify-between gap-2 shrink-0 mb-1.5 rounded-lg text-xs shadow-md overflow-hidden">
-          {/* Brand */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="w-5.5 h-5.5 rounded-full overflow-hidden border border-[#d62839] flex-none bg-black">
-              <img src="/assets/campo.png" alt="Fala Vascão" className="w-full h-full object-cover scale-150" />
-            </div>
-            <div className="flex items-center gap-1 font-black text-white uppercase tracking-wider text-[10.5px] whitespace-nowrap">
-              <span>Fala Vascão</span>
-              <span className="hidden 2xl:inline text-[#6d8274] font-semibold text-[9px]">| Portal Oficial & Prancheta</span>
-            </div>
-          </div>
-
-          {/* Navigation Switcher Tabs */}
-          <div className="flex items-center gap-0.5 bg-[#131c15] p-0.5 rounded-md border border-[#253528] shrink-0">
+      {/* Compact Workspace Header Bar (rendered only inside Prancheta PRO Tactics view) */}
+      {currentView === 'tactics' && canRenderTactics && !effectivePresentationMode && !isTopBarCollapsed && (
+        <header className="min-h-11 px-2.5 sm:px-3.5 py-1 sm:py-0 bg-[#0b110d] border border-[#1d2920] flex items-center justify-between gap-2 sm:gap-4 shrink-0 mb-1.5 rounded-xl text-xs shadow-sm">
+          {/* Zone 1: Back to Portal & Workspace Brand */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={() => setCurrentView('portal')}
-              className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
-                currentView === 'portal'
-                  ? 'bg-[#d62839] text-white shadow-md'
-                  : 'text-[#8ea295] hover:text-white'
-              }`}
+              className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#121c15] hover:bg-[#1a281f] border border-[#253629] text-[#dcebe1] hover:text-white transition cursor-pointer whitespace-nowrap shrink-0"
+              title="Voltar ao Portal Fala Vascão"
             >
-              <span>🏠</span>
-              <span>Portal</span>
+              <span className="text-xs leading-none">←</span>
+              <div className="w-5 h-5 rounded-full overflow-hidden border border-[#2f4234] bg-black shrink-0">
+                <img src="/assets/campo.png" alt="Fala Vascão" className="w-full h-full object-cover scale-150" />
+              </div>
+              <span className="font-semibold text-xs whitespace-nowrap">Portal</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleOpenTactics}
-              title={
-                canRenderTactics
-                  ? 'Abrir Prancheta Tática PRO'
-                  : 'Faça login com sua Conta Google para liberar a Prancheta PRO'
-              }
-              className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
-                currentView === 'tactics' && canRenderTactics
-                  ? 'bg-[#1b6b3b] text-white shadow-md'
-                  : canRenderTactics
-                  ? 'text-[#8ea295] hover:text-white'
-                  : 'text-amber-300/90 hover:text-white'
-              }`}
-            >
-              <span>{canRenderTactics ? '⚽' : '🔒'}</span>
-              <span>Prancheta PRO</span>
-            </button>
+            <span className="hidden sm:inline font-bold text-white tracking-tight text-sm whitespace-nowrap shrink-0">
+              Prancheta PRO
+            </span>
           </div>
 
-          {/* Tactics Quick Pop-ups & Viewport Controls (moved from RosterPanel to Top Bar) */}
-          {currentView === 'tactics' && canRenderTactics && (
-            <div className="flex items-center gap-1 bg-[#131c15] p-0.5 rounded-md border border-[#253528] shrink-0">
+          {/* Zone 2: Tactics Workspace Controls */}
+          <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
+            <div className="hidden md:flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsPlayEditorOpen((prev) => !prev)}
-                className={`px-2 py-0.5 rounded text-[9px] font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap border ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer whitespace-nowrap border ${
                   isPlayEditorOpen
-                    ? 'bg-[#8e1724] border-[#e35260] text-white shadow'
-                    : 'bg-[#19261d] hover:bg-[#233629] border-[#314b39] text-[#dff0e4]'
+                    ? 'bg-[#8e1724] border-[#e35260] text-white'
+                    : 'bg-[#152018] hover:bg-[#1e2d22] border-[#293c2e] text-[#dbe8df]'
                 }`}
                 title="Abrir ou fechar Criador de Jogadas em pop-up móvel"
               >
@@ -1359,10 +1332,10 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsExtrasOpen((prev) => !prev)}
-                className={`px-2 py-0.5 rounded text-[9px] font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap border ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer whitespace-nowrap border ${
                   isExtrasOpen
-                    ? 'bg-[#7d1520] border-[#ec6571] text-white shadow'
-                    : 'bg-[#19231d] hover:bg-[#233128] border-[#314539] text-[#cdd8d1]'
+                    ? 'bg-[#7d1520] border-[#ec6571] text-white'
+                    : 'bg-[#152018] hover:bg-[#1e2d22] border-[#293c2e] text-[#c7d7cc]'
                 }`}
                 title="Abrir ou fechar Recursos da Prancheta"
               >
@@ -1370,15 +1343,13 @@ export default function App() {
                 <span>Recursos</span>
               </button>
 
-              <div className="w-px h-4 bg-[#26362b] mx-0.5" />
-
               <button
                 type="button"
                 onClick={() => {
                   setIsTopBarCollapsed(true);
                   setStatusMessage('Barra superior oculta. Campo ampliado na altura!');
                 }}
-                className="px-2 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-1 cursor-pointer text-emerald-400 hover:text-white bg-[#142318] hover:bg-[#1f3726] border border-[#2d4d35] whitespace-nowrap"
+                className="px-2 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer text-[#89dba5] hover:text-white bg-[#121e16] hover:bg-[#1c2e22] border border-[#263c2d] whitespace-nowrap"
                 title="Ocultar barra superior para aumentar o campo na altura mantendo a proporção"
               >
                 <span>▲</span>
@@ -1388,120 +1359,87 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleToggleFullscreen}
-                className="px-2 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-1 cursor-pointer text-amber-300 hover:text-amber-200 bg-[#282210] hover:bg-[#382f16] border border-[#4d401e] whitespace-nowrap"
+                className="px-2 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer text-amber-300 hover:text-amber-200 bg-[#1e1a10] hover:bg-[#2d2716] border border-[#3d341c] whitespace-nowrap"
                 title="Campo Máximo: oculta barras e painéis mantendo proporção sem rolagem"
               >
                 <span>⛶</span>
                 <span className="hidden lg:inline">Máximo</span>
               </button>
             </div>
-          )}
+          </div>
 
-          {/* Header Actions: Socials & Auth & Owner Admin Button */}
-          <div className="flex items-center gap-1.5 text-[9px] font-bold shrink-0">
-            {/* Owner/Admin Quick Admin Panel Button */}
+          {/* Zone 3: Admin & Account Controls */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {authService.isAdminOrOwner(currentUser) && (
               <button
                 type="button"
                 onClick={() => setIsAdminModalOpen(true)}
-                className="flex items-center gap-1 bg-gradient-to-r from-[#d62839] to-[#991b28] hover:from-[#e83345] hover:to-[#b02130] text-white px-2 py-0.5 rounded transition shadow cursor-pointer font-black border border-[#ff6675] whitespace-nowrap"
-                title="Abrir Painel Administrativo Geral"
+                className="flex items-center gap-1.5 bg-[#9e1b29] hover:bg-[#b82232] border border-[#d64554]/40 text-white px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
+                title="Abrir Painel Administrativo"
               >
-                <span>🛡️</span>
-                <span className="hidden xl:inline">Painel Admin</span>
-                <span className="xl:hidden">Admin</span>
+                <span className="hidden sm:inline">Painel Admin</span>
+                <span className="sm:hidden">Admin</span>
                 {unreadRepliesCount > 0 && (
-                  <span className="px-1 py-0.2 rounded-full bg-white text-[#b01827] text-[8px] font-black animate-pulse">
+                  <span className="px-1.5 py-0.2 rounded bg-white text-[#9e1b29] text-[10px] font-bold tabular-nums">
                     {unreadRepliesCount}
                   </span>
                 )}
               </button>
             )}
 
-            {/* User Profile / Login status */}
-            {currentUser ? (
-              <div className="flex items-center gap-1 bg-[#142017] border border-[#26372b] px-1.5 py-0.5 rounded">
+            {currentUser && (
+              <div className="flex items-center gap-1 pl-2 border-l border-[#1f2e23] shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsAdminProfileOpen(true)}
-                  className="flex items-center gap-1 hover:text-emerald-300 transition cursor-pointer whitespace-nowrap"
-                  title={authService.isOwner(currentUser) ? "Ver Perfil de Administrador (tazmaniacrvg@gmail.com)" : "Ver perfil"}
+                  className="flex items-center gap-2 hover:bg-[#141f17] px-2 py-1 rounded-lg transition cursor-pointer whitespace-nowrap shrink-0"
+                  title="Ver meu perfil e permissões"
                 >
-                  <span className="text-[11px]">{authService.isOwner(currentUser) ? '👑' : '👤'}</span>
-                  <span className="text-white text-[9.5px] font-black max-w-[95px] truncate">{currentUser.name}</span>
-                  {authService.isOwner(currentUser) && (
-                    <span className="text-[7.5px] px-1 rounded font-black bg-[#d62839] text-white uppercase tracking-wider">
-                      ADMIN
+                  <div className="w-6 h-6 rounded-full bg-[#1a281e] border border-[#2f4535] overflow-hidden flex items-center justify-center text-[11px] font-bold text-[#d4e7db] shrink-0">
+                    {currentUser.avatar ? (
+                      <img
+                        src={currentUser.avatar}
+                        alt={currentUser.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      currentUser.name.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-xs font-semibold text-white max-w-[125px] truncate">
+                      {currentUser.name}
                     </span>
-                  )}
+                    <span className="text-[11px] text-[#7f9c89] font-medium hidden sm:inline">
+                      ·{' '}
+                      {authService.isOwner(currentUser) || currentUser.role === 'admin'
+                        ? 'Admin'
+                        : currentUser.role === 'moderator'
+                        ? 'Moderador'
+                        : currentUser.role === 'vip'
+                        ? 'VIP'
+                        : 'Membro'}
+                    </span>
+                  </div>
                 </button>
+
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="text-gray-400 hover:text-[#ff8e99] text-[9.5px] px-0.5 cursor-pointer"
+                  className="px-2.5 py-1.5 text-xs font-medium text-[#8fa697] hover:text-[#ff8e99] hover:bg-[#241316] rounded-lg transition cursor-pointer whitespace-nowrap shrink-0"
                   title="Sair da Conta Google"
                 >
-                  ✕
+                  Sair
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                disabled={isSigningIn}
-                onClick={handleGoogleSignIn}
-                className="flex items-center gap-1 bg-white hover:bg-gray-100 text-gray-900 px-2 py-0.5 rounded transition font-black cursor-pointer shadow whitespace-nowrap disabled:opacity-60"
-                title="Fazer login real com a Conta Google"
-              >
-                <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-                <span>{isSigningIn ? 'Entrando...' : 'Entrar'}</span>
-              </button>
-            )}
-
-            <a
-              href="https://www.youtube.com/@FalaVascao1"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 text-[#ff808e] hover:text-white bg-[#261517] hover:bg-[#3d191d] border border-[#52252a] px-1.5 py-0.5 rounded transition whitespace-nowrap"
-              title="Canal Fala Vascão no YouTube"
-            >
-              <span>▶</span>
-              <span className="hidden xl:inline">YouTube</span>
-            </a>
-            {siteSettings.kickBannerVisible && (
-              <a
-                href="https://kick.com/falavascao"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-[#53fc18] hover:text-white bg-[#142614] hover:bg-[#1d3d1d] border border-[#2e5726] px-1.5 py-0.5 rounded font-black transition whitespace-nowrap"
-                title="Canal Fala Vascão na Kick"
-              >
-                <span>K</span>
-                <span className="hidden xl:inline">Kick</span>
-              </a>
             )}
           </div>
         </header>
       )}
 
-      {/* Floating Restore Button for Top Header Bar */}
-      {isTopBarCollapsed && !effectivePresentationMode && (
+      {/* Floating Restore Button for Top Header Bar (Tactics only) */}
+      {currentView === 'tactics' && canRenderTactics && isTopBarCollapsed && !effectivePresentationMode && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40">
           <button
             type="button"
@@ -1538,7 +1476,7 @@ export default function App() {
 
       {/* Main Workspace Layout — Prancheta Tática strictly gated by verified Google login */}
       {!(currentView === 'tactics' && canRenderTactics) ? (
-        <main className="flex-1 min-h-0 w-full overflow-hidden rounded-lg border border-[#243328] bg-[#0c120e]">
+        <main className="flex-1 min-h-0 w-full overflow-hidden bg-[#070b08]">
           <PortalView
             onOpenTactics={handleOpenTactics}
             currentUser={currentUser}
